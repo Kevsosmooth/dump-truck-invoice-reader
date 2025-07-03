@@ -41,6 +41,38 @@ function App() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && (droppedFile.type === 'application/pdf' || droppedFile.type.startsWith('image/'))) {
       setFile(droppedFile);
+      uploadFile(droppedFile);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile && (selectedFile.type === 'application/pdf' || selectedFile.type.startsWith('image/'))) {
+      setFile(selectedFile);
+      uploadFile(selectedFile);
+    }
+  };
+
+  const uploadFile = async (fileToUpload: File) => {
+    const formData = new FormData();
+    formData.append('file', fileToUpload);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/jobs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(`Success! Extracted data: ${JSON.stringify(result.extractedData, null, 2)}`);
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload file');
     }
   };
 
@@ -159,10 +191,18 @@ function App() {
                     <p className="text-sm text-gray-500 mt-1">
                       or click to browse from your computer
                     </p>
+                    <input
+                      type="file"
+                      id="file-upload"
+                      className="hidden"
+                      accept=".pdf,image/*"
+                      onChange={handleFileSelect}
+                    />
                     <Button 
                       variant="default" 
                       size="lg" 
                       className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl"
+                      onClick={() => document.getElementById('file-upload')?.click()}
                     >
                       Select Invoice
                     </Button>

@@ -28,10 +28,12 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes will be added here
-// app.use('/api/auth', authRoutes);
-// app.use('/api/jobs', jobRoutes);
-// app.use('/api/user', userRoutes);
+// Routes
+import jobRoutes from './routes/jobs';
+import userRoutes from './routes/user';
+
+app.use('/api/jobs', jobRoutes);
+app.use('/api/user', userRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
