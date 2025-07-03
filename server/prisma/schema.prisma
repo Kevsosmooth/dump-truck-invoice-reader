@@ -1,0 +1,145 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int              @id @default(autoincrement())
+  azureId         String           @unique
+  email           String           @unique
+  firstName       String?
+  lastName        String?
+  credits         Int              @default(0)
+  organization    Organization?
+  jobs            Job[]
+  transactions    Transaction[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model Organization {
+  id              Int              @id @default(autoincrement())
+  name            String
+  userId          Int              @unique
+  user            User             @relation(fields: [userId], references: [id])
+  customModels    CustomModel[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model CustomModel {
+  id              String           @id @default(uuid())
+  organizationId  Int
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  name            String
+  azureModelId    String
+  description     String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model Job {
+  id              String           @id @default(uuid())
+  userId          Int
+  user            User             @relation(fields: [userId], references: [id])
+  status          JobStatus        @default(QUEUED)
+  fileName        String
+  originalFileUrl String?
+  processedFileUrl String?
+  resultFileUrl   String?
+  fileSize        Int
+  pageCount       Int              @default(0)
+  pagesProcessed  Int              @default(0)
+  creditsUsed     Int              @default(0)
+  modelId         String?
+  error           String?
+  metadata        Json?
+  queueJobId      String?          // Bull job ID
+  createdAt       DateTime         @default(now())
+  completedAt     DateTime?
+  expiresAt       DateTime?
+  fileAccessLogs  FileAccessLog[]
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+model Transaction {
+  id              String           @id @default(uuid())
+  userId          Int
+  user            User             @relation(fields: [userId], references: [id])
+  type            TransactionType
+  amount          Int              // In cents
+  credits         Int
+  stripePaymentIntentId String?    @unique
+  status          TransactionStatus @default(PENDING)
+  description     String?
+  metadata        Json?
+  createdAt       DateTime         @default(now())
+}
+
+enum TransactionType {
+  PURCHASE
+  USAGE
+  REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+  BONUS
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model AuditLog {
+  id              String           @id @default(uuid())
+  userId          Int?
+  user            User?            @relation(fields: [userId], references: [id])
+  eventType       String
+  eventData       Json
+  ipAddress       String?
+  userAgent       String?
+  azureCorrelationId String?
+  createdAt       DateTime         @default(now())
+  
+  @@index([eventType])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model FileAccessLog {
+  id              String           @id @default(uuid())
+  jobId           String
+  job             Job              @relation(fields: [jobId], references: [id])
+  accessType      FileAccessType
+  ipAddress       String?
+  userAgent       String?
+  sasTokenExpiry  DateTime?
+  createdAt       DateTime         @default(now())
+  
+  @@index([jobId])
+}
+
+enum FileAccessType {
+  DOWNLOAD
+  DELETE
+  EXPIRE
+  VIEW
+}
