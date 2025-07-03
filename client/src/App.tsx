@@ -53,9 +53,15 @@ function App() {
     }
   };
 
+  const [isUploading, setIsUploading] = useState(false);
+  const [lastResult, setLastResult] = useState<any>(null);
+
   const uploadFile = async (fileToUpload: File) => {
     const formData = new FormData();
     formData.append('file', fileToUpload);
+    
+    setIsUploading(true);
+    setLastResult(null);
 
     try {
       const response = await fetch('http://localhost:3001/api/jobs/upload', {
@@ -66,13 +72,33 @@ function App() {
       const result = await response.json();
       
       if (result.success) {
-        alert(`Success! Extracted data: ${JSON.stringify(result.extractedData, null, 2)}`);
+        setLastResult(result);
+        console.log('Extraction successful:', result);
+        
+        // Create a formatted display of extracted fields
+        const fields = result.extractedData;
+        let extractedInfo = `✅ Document processed successfully!\n\n`;
+        extractedInfo += `📄 Model Used: ${result.modelUsed}\n`;
+        extractedInfo += `🎯 Confidence: ${(result.confidence * 100).toFixed(1)}%\n`;
+        extractedInfo += `💳 Credits Remaining: ${result.creditsRemaining}\n\n`;
+        extractedInfo += `📋 Extracted Data:\n`;
+        
+        // Display key fields if they exist
+        Object.entries(fields).forEach(([key, value]: [string, any]) => {
+          if (value?.value !== null && value?.value !== undefined && key !== '_allFields') {
+            extractedInfo += `${key}: ${value.value}\n`;
+          }
+        });
+        
+        alert(extractedInfo);
       } else {
-        alert(`Error: ${result.error}`);
+        alert(`❌ Error: ${result.error}\n\n${result.details || ''}\n\n${result.suggestion || ''}`);
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload file');
+      alert('❌ Failed to connect to server. Make sure the backend is running on port 3001.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -203,8 +229,16 @@ function App() {
                       size="lg" 
                       className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl"
                       onClick={() => document.getElementById('file-upload')?.click()}
+                      disabled={isUploading}
                     >
-                      Select Invoice
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        'Select Invoice'
+                      )}
                     </Button>
                     {file && (
                       <div className="mt-6 p-4 bg-emerald-50 rounded-lg border border-emerald-200 animate-in slide-in-from-bottom duration-300">

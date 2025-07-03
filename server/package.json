@@ -4,8 +4,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
+    "dev:simple": "nodemon --exec ts-node src/index-simple.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:simple": "ts-node src/index-simple.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
