@@ -33,46 +33,15 @@ This application is optimized for Azure Document AI's free tier:
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start (No Database Required! 🚀)
 
-- Node.js v18+
-- Docker and Docker Compose
-- Azure account with Document AI resource
-- PostgreSQL (via Docker)
-- Redis (via Docker)
+Want to test the invoice processor immediately? Use our **Simple Mode** - no database setup needed!
 
-### Environment Variables
-
-Create a `.env` file in both `/client` and `/server` directories:
-
-```env
-# Server .env
-DATABASE_URL="postgresql://user:password@localhost:5432/invoice_processor"
-REDIS_URL="redis://localhost:6379"
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
-AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
-AZURE_STORAGE_CONNECTION_STRING="your-connection-string"
-STRIPE_SECRET_KEY="sk_test_..."
-STRIPE_WEBHOOK_SECRET="whsec_..."
-SENDGRID_API_KEY="SG...."
-JWT_SECRET="your-jwt-secret"
-```
-
-### Installation
-
-1. Clone the repository:
+#### 1. Clone and Install
 ```bash
 git clone <repository-url>
 cd invoice-processor
-```
 
-2. Start Docker services:
-```bash
-docker-compose up -d
-```
-
-3. Install dependencies:
-```bash
 # Install client dependencies
 cd client
 npm install
@@ -82,15 +51,82 @@ cd ../server
 npm install
 ```
 
-4. Run database migrations:
+#### 2. Configure Azure Credentials
+Create a `.env` file in the `/server` directory:
+```env
+# Required for Simple Mode
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+AZURE_CUSTOM_MODEL_ID="your-custom-model-id" # Optional: defaults to prebuilt-invoice
+```
+
+#### 3. Start the Application
+```bash
+# Terminal 1 - Start backend in simple mode (no database)
+cd server
+npm run dev:simple
+
+# Terminal 2 - Start frontend
+cd client
+npm run dev
+```
+
+That's it! Visit `http://localhost:3000` and start processing invoices! 🎉
+
+### Full Setup (With Database)
+
+For production use with persistent storage, user management, and all features:
+
+#### Prerequisites
+- Node.js v18+
+- Docker and Docker Compose
+- Azure account with Document AI resource
+- PostgreSQL (via Docker)
+- Redis (via Docker)
+
+#### Complete Environment Variables
+Create a `.env` file in the `/server` directory:
+```env
+# Database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/invoice_processor"
+REDIS_URL="redis://localhost:6379"
+
+# Azure Document Intelligence
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+AZURE_CUSTOM_MODEL_ID="your-custom-model-id"
+
+# Azure Storage
+AZURE_STORAGE_CONNECTION_STRING="your-connection-string"
+AZURE_STORAGE_CONTAINER_NAME="invoice-files"
+
+# Authentication (optional)
+JWT_SECRET="your-jwt-secret"
+
+# Email (optional)
+SENDGRID_API_KEY="SG...."
+FROM_EMAIL="noreply@yourdomain.com"
+
+# Payments (optional)
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+```
+
+#### Installation Steps
+1. Start Docker services:
+```bash
+docker-compose up -d
+```
+
+2. Run database migrations:
 ```bash
 cd server
 npx prisma migrate dev
 ```
 
-5. Start development servers:
+3. Start development servers:
 ```bash
-# Terminal 1 - Start backend
+# Terminal 1 - Start backend with database
 cd server
 npm run dev
 
@@ -99,7 +135,50 @@ cd client
 npm run dev
 ```
 
+## Simple Mode vs Full Mode
+
+### Simple Mode (No Database)
+Perfect for testing and development:
+- ✅ No database setup required
+- ✅ Runs with just Node.js
+- ✅ Full Azure Document AI integration
+- ✅ In-memory storage (resets on restart)
+- ✅ 100 test credits included
+- ❌ No data persistence
+- ❌ No user management
+- ❌ No background job processing
+
+### Full Mode (With Database)
+For production and multi-user scenarios:
+- ✅ Persistent data storage
+- ✅ User authentication with Azure AD B2C
+- ✅ Background job processing with Redis/Bull
+- ✅ File storage with Azure Blob Storage
+- ✅ Payment processing with Stripe
+- ✅ Email notifications
+- ✅ Audit trails and analytics
+- ❌ Requires Docker and database setup
+
 ## Development
+
+### Available Scripts
+
+#### Backend Scripts
+```bash
+npm run dev          # Start with database (full mode)
+npm run dev:simple   # Start without database (simple mode)
+npm run build        # Build for production
+npm run start        # Start production build
+npm run start:simple # Start production build in simple mode
+```
+
+#### Frontend Scripts
+```bash
+npm run dev      # Start development server (port 3000)
+npm run build    # Build for production
+npm run preview  # Preview production build
+npm run lint     # Run ESLint
+```
 
 ### Project Structure
 
