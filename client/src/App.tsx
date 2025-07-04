@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { FileRenameBuilder } from '@/components/FileRenameBuilder';
+import { ModelTrainingPage } from '@/pages/ModelTraining';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Upload, 
   FileText, 
@@ -18,12 +21,15 @@ import {
   Download,
   FileCheck,
   Zap,
-  BarChart3
+  BarChart3,
+  Brain
 } from 'lucide-react';
 
 function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [showModelTraining, setShowModelTraining] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('Silvi_Reader_Full_2.0');
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -55,16 +61,21 @@ function App() {
 
   const [isUploading, setIsUploading] = useState(false);
   const [lastResult, setLastResult] = useState<any>(null);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [recentJobs, setRecentJobs] = useState<any[]>([]);
+  const [showRenameBuilder, setShowRenameBuilder] = useState(false);
+  const [renameData, setRenameData] = useState<any>(null);
 
   const uploadFile = async (fileToUpload: File) => {
     const formData = new FormData();
     formData.append('file', fileToUpload);
+    formData.append('modelId', selectedModel);
     
     setIsUploading(true);
     setLastResult(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/jobs/upload', {
+      const response = await fetch('http://localhost:3003/api/jobs/upload', {
         method: 'POST',
         body: formData,
       });
@@ -75,35 +86,159 @@ function App() {
         setLastResult(result);
         console.log('Extraction successful:', result);
         
-        // Create a formatted display of extracted fields
-        const fields = result.extractedData;
-        let extractedInfo = `✅ Document processed successfully!\n\n`;
-        extractedInfo += `📄 Model Used: ${result.modelUsed}\n`;
-        extractedInfo += `🎯 Confidence: ${(result.confidence * 100).toFixed(1)}%\n`;
-        extractedInfo += `💳 Credits Remaining: ${result.creditsRemaining}\n\n`;
-        extractedInfo += `📋 Extracted Data:\n`;
+        // If needs renaming, show the rename builder
+        if (result.needsRenaming && result.availableFields) {
+          setRenameData({
+            availableFields: result.availableFields,
+            originalFileName: result.originalFileName,
+            sessionId: result.sessionId,
+            result: result
+          });
+          setShowRenameBuilder(true);
+        } else {
+          // Just add to recent jobs if no renaming needed
+          finishProcessing(result);
+        }
         
-        // Display key fields if they exist
-        Object.entries(fields).forEach(([key, value]: [string, any]) => {
-          if (value?.value !== null && value?.value !== undefined && key !== '_allFields') {
-            extractedInfo += `${key}: ${value.value}\n`;
-          }
-        });
+        // Clear the file after successful processing
+        setFile(null);
         
-        alert(extractedInfo);
+        // Reset file input if it exists
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+        if (fileInput) {
+          fileInput.value = '';
+        }
       } else {
         alert(`❌ Error: ${result.error}\n\n${result.details || ''}\n\n${result.suggestion || ''}`);
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('❌ Failed to connect to server. Make sure the backend is running on port 3001.');
+      alert('❌ Failed to connect to server. Make sure the backend is running on port 3003.');
     } finally {
       setIsUploading(false);
     }
   };
 
+  const finishProcessing = (result: any, customFileName?: string) => {
+    // Add to recent jobs
+    const newJob = {
+      id: result.jobId,
+      sessionId: result.sessionId,
+      originalFileName: result.originalFileName,
+      renamedFileName: customFileName || result.renamedFileName,
+      status: 'completed',
+      date: new Date().toISOString(),
+      pages: result.pageCount,
+      confidence: result.confidence,
+      downloadUrl: result.downloadUrl,
+      extractedData: result.extractedData,
+      availableFields: result.availableFields
+    };
+    
+    setRecentJobs(prev => [newJob, ...prev].slice(0, 10)); // Keep last 10 jobs
+    
+    // Show success message
+    const fields = result.extractedData;
+    let extractedInfo = `✅ Document processed successfully!\n\n`;
+    extractedInfo += `📄 Original: ${result.originalFileName}\n`;
+    extractedInfo += `📝 Renamed: ${customFileName || result.renamedFileName}\n`;
+    extractedInfo += `📄 Model Used: ${result.modelUsed}\n`;
+    extractedInfo += `📑 Pages Processed: ${result.pageCount}\n`;
+    extractedInfo += `🎯 Confidence: ${(result.confidence * 100).toFixed(1)}%\n`;
+    extractedInfo += `💳 Credits Remaining: ${result.creditsRemaining}\n\n`;
+    extractedInfo += `📋 Extracted Data:\n`;
+    
+    // Display key fields if they exist
+    if (!Array.isArray(fields)) {
+      Object.entries(fields).forEach(([key, value]: [string, any]) => {
+        if (value?.value !== null && value?.value !== undefined && key !== '_allFields') {
+          extractedInfo += `${key}: ${value.value}\n`;
+        }
+      });
+    }
+    
+    extractedInfo += `\n📥 Download package ready with renamed PDF and Excel!`;
+    
+    alert(extractedInfo);
+    
+    // Increment processed count
+    setProcessedCount(prev => prev + 1);
+  };
+
+  const handleRename = (newFileName: string) => {
+    setShowRenameBuilder(false);
+    if (renameData && renameData.result) {
+      finishProcessing(renameData.result, newFileName);
+    }
+    setRenameData(null);
+  };
+
+  const exportToExcel = async () => {
+    try {
+      const response = await fetch('http://localhost:3003/api/jobs/export/excel');
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `processed_invoices_${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        const error = await response.json();
+        alert(`❌ ${error.error || 'Failed to export Excel file'}`);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('❌ Failed to export Excel file');
+    }
+  };
+
+  if (showModelTraining) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
+        <header className="relative bg-white/70 backdrop-blur-md shadow-sm border-b border-gray-100">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowModelTraining(false)}
+                  className="mr-2"
+                >
+                  ← Back to Dashboard
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+        <ModelTrainingPage />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
+      {/* File Rename Builder Modal */}
+      {showRenameBuilder && renameData && (
+        <FileRenameBuilder
+          availableFields={renameData.availableFields}
+          originalFileName={renameData.originalFileName}
+          sessionId={renameData.sessionId}
+          onRename={handleRename}
+          onClose={() => {
+            setShowRenameBuilder(false);
+            // If closed without renaming, still finish processing with original name
+            if (renameData.result) {
+              finishProcessing(renameData.result);
+            }
+            setRenameData(null);
+          }}
+        />
+      )}
       {/* Animated background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
@@ -126,7 +261,7 @@ function App() {
                 <p className="text-xs text-gray-500">Powered by Azure Document Intelligence</p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-full border border-emerald-200">
                 <Zap className="h-4 w-4 text-emerald-600" />
                 <span className="text-sm font-semibold text-emerald-700">100 Credits</span>
@@ -251,6 +386,42 @@ function App() {
                   </div>
                 </div>
 
+                <div className="mt-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      AI Model Selection
+                    </label>
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Silvi_Reader_Full_2.0">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">Default</Badge>
+                            <span>Silvi Reader Full 2.0</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="prebuilt-invoice">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs">Azure</Badge>
+                            <span>Prebuilt Invoice</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="custom" disabled>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">Custom</Badge>
+                            <span>Your Custom Models</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Train custom models to extract specific data from your invoices
+                    </p>
+                  </div>
+                </div>
+
                 <Alert className="mt-6 border-indigo-200 bg-indigo-50">
                   <Zap className="h-4 w-4 text-indigo-600" />
                   <AlertDescription className="text-indigo-700">
@@ -271,34 +442,20 @@ function App() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <JobItem 
-                    fileName="Q4_2024_Revenue_Report.pdf"
-                    status="completed"
-                    date="2 minutes ago"
-                    pages={1}
-                    amount="$45,230.00"
-                  />
-                  <JobItem 
-                    fileName="Vendor_Invoice_Microsoft.pdf"
-                    status="processing"
-                    date="5 minutes ago"
-                    pages={2}
-                    progress={65}
-                  />
-                  <JobItem 
-                    fileName="December_Expenses.pdf"
-                    status="failed"
-                    date="10 minutes ago"
-                    pages={1}
-                    error="Unable to detect invoice format"
-                  />
-                  <JobItem 
-                    fileName="AWS_Cloud_Services.pdf"
-                    status="completed"
-                    date="15 minutes ago"
-                    pages={3}
-                    amount="$12,450.00"
-                  />
+                  {recentJobs.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm">No documents processed yet</p>
+                      <p className="text-xs mt-1">Upload your first invoice to get started</p>
+                    </div>
+                  ) : (
+                    recentJobs.map((job) => (
+                      <JobItemWithDownload
+                        key={job.id}
+                        job={job}
+                      />
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -348,6 +505,14 @@ function App() {
                 <Button variant="outline" className="w-full justify-start gap-2">
                   <BarChart3 className="h-4 w-4" />
                   Analytics Dashboard
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start gap-2 border-purple-200 text-purple-700 hover:bg-purple-50"
+                  onClick={() => setShowModelTraining(true)}
+                >
+                  <Brain className="h-4 w-4" />
+                  Custom Model Training
                 </Button>
               </CardContent>
             </Card>
@@ -530,6 +695,123 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }: Job
             <Download className="h-4 w-4" />
           </Button>
         )}
+      </div>
+    </div>
+  );
+}
+
+interface JobItemWithDownloadProps {
+  job: {
+    id: string;
+    sessionId: string;
+    originalFileName: string;
+    renamedFileName: string;
+    status: string;
+    date: string;
+    pages: number;
+    confidence: number;
+    downloadUrl: string;
+    extractedData: any;
+  };
+}
+
+function JobItemWithDownload({ job }: JobItemWithDownloadProps) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`http://localhost:3003${job.downloadUrl}`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `invoice_package_${job.sessionId}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        alert('Failed to download package');
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download package');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+  
+  // Format the date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
+    
+    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+    if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)} hour${Math.floor(diffMinutes / 60) > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+  };
+  
+  // Extract amount from data if available
+  let amount = null;
+  if (job.extractedData && !Array.isArray(job.extractedData)) {
+    const amountFields = ['InvoiceTotal', 'TotalAmount', 'Total', 'AmountDue', 'Amount'];
+    for (const field of amountFields) {
+      if (job.extractedData[field]?.value) {
+        amount = job.extractedData[field].value;
+        break;
+      }
+    }
+  }
+  
+  return (
+    <div className="group flex items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-300 bg-white">
+      <div className="flex items-center gap-4">
+        <div className="p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg group-hover:from-indigo-100 group-hover:to-purple-100 transition-colors">
+          <FileText className="h-6 w-6 text-indigo-600" />
+        </div>
+        <div>
+          <p className="font-medium text-gray-900">{job.originalFileName}</p>
+          <p className="text-xs text-gray-500 mt-0.5">→ {job.renamedFileName}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-xs text-gray-500">{formatDate(job.date)}</p>
+            <span className="text-xs text-gray-400">•</span>
+            <p className="text-xs text-gray-500">{job.pages} page{job.pages > 1 ? 's' : ''}</p>
+            <span className="text-xs text-gray-400">•</span>
+            <p className="text-xs text-gray-500">{(job.confidence * 100).toFixed(0)}% confidence</p>
+            {amount && (
+              <>
+                <span className="text-xs text-gray-400">•</span>
+                <p className="text-xs font-medium text-emerald-600">{amount}</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border text-emerald-600 bg-emerald-50 border-emerald-200">
+          <CheckCircle2 className="h-4 w-4" />
+          Completed
+        </div>
+        <Button 
+          size="sm" 
+          variant="outline" 
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="ml-2 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <>
+              <Download className="h-4 w-4 mr-1" />
+              Download ZIP
+            </>
+          )}
+        </Button>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { DocumentAnalysisClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -30,11 +30,11 @@ export async function processDocument(filePath: string, modelId?: string): Promi
     const poller = await client.beginAnalyzeDocument(model, fileStream);
     const result = await poller.pollUntilDone();
     
-    if (!result || result.documents?.length === 0) {
+    if (!result || !result.documents || result.documents.length === 0) {
       throw new Error('No documents found in the result');
     }
     
-    const document = result.documents[0];
+    const document = result.documents![0];
     const fields = document.fields || {};
     
     // Extract relevant fields based on your custom model
@@ -92,11 +92,11 @@ export async function processDocumentBuffer(buffer: Buffer, fileName: string, mo
     const poller = await client.beginAnalyzeDocument(model, buffer);
     const result = await poller.pollUntilDone();
     
-    if (!result || result.documents?.length === 0) {
+    if (!result || !result.documents || result.documents.length === 0) {
       throw new Error('No documents found in the result');
     }
     
-    const document = result.documents[0];
+    const document = result.documents![0];
     const fields = document.fields || {};
     
     return {
@@ -114,7 +114,10 @@ export async function processDocumentBuffer(buffer: Buffer, fileName: string, mo
     console.error('Error processing document buffer:', error);
     
     // Check if it's a model not found error
-    if (error.message?.includes('model') || error.code === 'ModelNotFound') {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as any)?.code;
+    
+    if (errorMessage.includes('model') || errorCode === 'ModelNotFound') {
       console.log('Custom model not found, falling back to prebuilt-invoice model');
       
       // Retry with prebuilt invoice model
@@ -145,7 +148,15 @@ export async function processDocumentBuffer(buffer: Buffer, fileName: string, mo
 export async function listModels() {
   try {
     const models = [];
-    for await (const model of client.listDocumentModels()) {
+    // The listDocumentModels method might be named differently or not available in this version
+    // Using type assertion to handle potential method availability
+    const modelsList = (client as any).listDocumentModels?.();
+    if (!modelsList) {
+      console.warn('listDocumentModels method not available in this SDK version');
+      return [];
+    }
+    
+    for await (const model of modelsList) {
       models.push({
         modelId: model.modelId,
         createdOn: model.createdOn,
