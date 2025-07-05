@@ -6,7 +6,7 @@ import {
   DocumentModelDetails,
   AnalyzeResult
 } from '@azure/ai-form-recognizer';
-import { BlobServiceClient, ContainerClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { BlobServiceClient, ContainerClient, ContainerSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -55,7 +55,7 @@ export interface TrainingOptions {
 }
 
 export class AzureTrainingService {
-  private containerPrefix = 'training-data';
+  private containerPrefix = process.env.AZURE_STORAGE_CONTAINER_NAME || 'training-documents';
 
   /**
    * Create a blob container for storing training documents
@@ -65,12 +65,13 @@ export class AzureTrainingService {
       throw new Error('Azure Storage not configured');
     }
 
-    const containerName = `${this.containerPrefix}-${userId}-${projectId}`.toLowerCase();
-    const containerClient = blobServiceClient.getContainerClient(containerName);
+    // Use a single container with organized folders for each project
+    const containerClient = blobServiceClient.getContainerClient(this.containerPrefix);
     
-    await containerClient.createIfNotExists({
-      access: 'blob'
-    });
+    // Note: Files will be organized in folders like: userId/projectId/filename
+    
+    // Create private container (no public access)
+    await containerClient.createIfNotExists();
 
     return containerClient;
   }
@@ -141,7 +142,7 @@ export class AzureTrainingService {
     
     const sasOptions = {
       containerName: containerClient.containerName,
-      permissions: BlobSASPermissions.parse("racwdl"), // read, add, create, write, delete, list
+      permissions: ContainerSASPermissions.parse("racwdl"), // read, add, create, write, delete, list
       startsOn: new Date(),
       expiresOn: new Date(new Date().valueOf() + 3600 * 1000 * 24), // 24 hours
     };

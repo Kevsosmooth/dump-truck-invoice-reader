@@ -109,13 +109,21 @@ export function TrainingProgress({ projectId, onComplete }: TrainingProgressProp
           setTrainingStatus({
             status: 'failed',
             progress: trainingStatus.progress,
-            error: 'Training failed'
+            error: data.error || 'Training failed'
           });
-        } else {
-          // Simulate progress
+        } else if (data.trainingProgress) {
+          // Use actual progress from server
+          const progress = data.trainingProgress.percentCompleted || 0;
           setTrainingStatus(prev => ({
             ...prev,
-            progress: Math.min(90, prev.progress + Math.random() * 10)
+            status: 'training',
+            progress: Math.max(prev.progress, progress)
+          }));
+        } else {
+          // Fallback progress simulation
+          setTrainingStatus(prev => ({
+            ...prev,
+            progress: Math.min(90, prev.progress + Math.random() * 5)
           }));
         }
       }

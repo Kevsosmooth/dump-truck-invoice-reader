@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { PDFViewer } from './PDFViewer';
 import {
   Square,
   Type,
@@ -238,10 +239,10 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
     updatedDocs[currentDocIndex].labels.push(newLabel);
     setDocuments(updatedDocs);
 
-    // Reset
+    // Reset drawing state but keep field name for next label
     setIsDrawing(false);
     setCurrentBox(null);
-    setFieldName('');
+    // Don't clear fieldName so it persists for the next label
   };
 
   const removeLabel = (labelId: string) => {
@@ -286,7 +287,18 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
 
         // Move to next document or complete
         if (currentDocIndex < documents.length - 1) {
-          setCurrentDocIndex(currentDocIndex + 1);
+          // Copy labels to next document if it doesn't have any
+          const nextDocIndex = currentDocIndex + 1;
+          if (updatedDocs[nextDocIndex].labels.length === 0) {
+            // Copy current labels to next document
+            updatedDocs[nextDocIndex].labels = currentDoc.labels.map(label => ({
+              ...label,
+              id: Math.random().toString(36).substr(2, 9), // New ID for each label
+              value: '' // Clear value for new document
+            }));
+            setDocuments(updatedDocs);
+          }
+          setCurrentDocIndex(nextDocIndex);
         } else if (labeledCount + 1 === documents.length) {
           onComplete();
         }
@@ -435,7 +447,10 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setCurrentDocIndex(Math.max(0, currentDocIndex - 1))}
+                    onClick={() => {
+                      const prevIndex = Math.max(0, currentDocIndex - 1);
+                      setCurrentDocIndex(prevIndex);
+                    }}
                     disabled={currentDocIndex === 0}
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -446,7 +461,20 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setCurrentDocIndex(Math.min(documents.length - 1, currentDocIndex + 1))}
+                    onClick={() => {
+                      const nextIndex = Math.min(documents.length - 1, currentDocIndex + 1);
+                      // If next document has no labels and current has labels, copy them
+                      if (documents[nextIndex].labels.length === 0 && currentDoc.labels.length > 0) {
+                        const updatedDocs = [...documents];
+                        updatedDocs[nextIndex].labels = currentDoc.labels.map(label => ({
+                          ...label,
+                          id: Math.random().toString(36).substr(2, 9),
+                          value: ''
+                        }));
+                        setDocuments(updatedDocs);
+                      }
+                      setCurrentDocIndex(nextIndex);
+                    }}
                     disabled={currentDocIndex === documents.length - 1}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -508,14 +536,34 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
                     }
                   }}
                 >
-                  {/* Document Image */}
+                  {/* Document Display - PDF or Image */}
                   {currentDoc && (
-                    <img
-                      src={currentDoc.url}
-                      alt={currentDoc.fileName}
-                      className="absolute inset-0 w-full h-full object-contain"
-                      style={{ maxWidth: '100%', maxHeight: '100%' }}
-                    />
+                    <div className="absolute inset-0">
+                      {(() => {
+                        console.log('Current doc:', currentDoc.fileName, currentDoc.url);
+                        const isPDF = currentDoc.fileName.toLowerCase().endsWith('.pdf');
+                        console.log('Is PDF?', isPDF);
+                        
+                        if (isPDF) {
+                          return (
+                            <PDFViewer
+                              url={currentDoc.url}
+                              scale={zoom}
+                              pageNumber={1}
+                            />
+                          );
+                        } else {
+                          return (
+                            <img
+                              src={currentDoc.url}
+                              alt={currentDoc.fileName}
+                              className="w-full h-full object-contain"
+                              style={{ maxWidth: '100%', maxHeight: '100%' }}
+                            />
+                          );
+                        }
+                      })()}
+                    </div>
                   )}
                   {/* Canvas for drawing new boxes - only visible when not clicking on labels */}
                   <canvas
@@ -609,6 +657,28 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
           >
             Clear Labels
           </Button>
+          {currentDocIndex < documents.length - 1 && documents[currentDocIndex + 1].labels.length === 0 && currentDoc?.labels.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                const updatedDocs = [...documents];
+                // Copy all labels to remaining documents
+                for (let i = currentDocIndex + 1; i < documents.length; i++) {
+                  if (updatedDocs[i].labels.length === 0) {
+                    updatedDocs[i].labels = currentDoc.labels.map(label => ({
+                      ...label,
+                      id: Math.random().toString(36).substr(2, 9),
+                      value: ''
+                    }));
+                  }
+                }
+                setDocuments(updatedDocs);
+                alert(`Copied labels to ${documents.length - currentDocIndex - 1} remaining documents`);
+              }}
+            >
+              Copy to All
+            </Button>
+          )}
           <Button
             onClick={saveLabels}
             disabled={currentDoc?.labels.length === 0 || saving}
