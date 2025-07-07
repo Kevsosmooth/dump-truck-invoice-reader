@@ -97,16 +97,154 @@ export class AzureTrainingService {
   }
 
   /**
+   * Upload training document with OCR processing
+   */
+  async uploadTrainingDocumentWithOcr(
+    containerClient: ContainerClient,
+    fileName: string,
+    fileBuffer: Buffer,
+    contentType: string
+  ): Promise<string> {
+    // Upload the document
+    const documentUrl = await this.uploadTrainingDocument(containerClient, fileName, fileBuffer, contentType);
+    
+    // Generate and upload OCR file if it's a PDF
+    if (contentType === 'application/pdf') {
+      try {
+        console.log(`Generating OCR for ${fileName}...`);
+        const ocrData = await this.generateOcrData(fileBuffer);
+        
+        const ocrFileName = `${fileName}.ocr.json`;
+        const ocrDataString = JSON.stringify(ocrData, null, 2);
+        const ocrBlockBlobClient = containerClient.getBlockBlobClient(ocrFileName);
+        
+        await ocrBlockBlobClient.upload(
+          Buffer.from(ocrDataString),
+          ocrDataString.length,
+          {
+            blobHTTPHeaders: {
+              blobContentType: 'application/json'
+            }
+          }
+        );
+        
+        console.log(`OCR file uploaded: ${ocrFileName}`);
+      } catch (error) {
+        console.error(`Failed to generate OCR for ${fileName}:`, error);
+        // Continue without OCR - training might fail but at least document is uploaded
+      }
+    }
+    
+    return documentUrl;
+  }
+
+  /**
+   * Generate OCR data for a document using Azure Layout API
+   */
+  async generateOcrData(documentBuffer: Buffer): Promise<any> {
+    try {
+      console.log('Generating OCR data using Layout API...');
+      
+      // Use the prebuilt-layout model to analyze the document
+      const poller = await analysisClient.beginAnalyzeDocument(
+        'prebuilt-layout',
+        documentBuffer
+      );
+      
+      const result = await poller.pollUntilDone();
+      
+      if (!result.pages || result.pages.length === 0) {
+        throw new Error('No pages found in document');
+      }
+      
+      // Convert to OCR format expected by training (v2.1 format for labeled training)
+      const ocrData = {
+        status: "succeeded",
+        createdDateTime: new Date().toISOString(),
+        lastUpdatedDateTime: new Date().toISOString(),
+        analyzeResult: {
+          version: "2.1.0",
+          readResults: result.pages.map(page => ({
+            page: page.pageNumber || 1,
+            angle: page.angle || 0,
+            width: page.width || 8.5,
+            height: page.height || 11,
+            unit: page.unit || "inch",
+            lines: page.lines?.map(line => {
+              // Convert polygon to bounding box format [x1,y1,x2,y2,x3,y3,x4,y4]
+              const boundingBox = line.polygon ? [
+                line.polygon[0], line.polygon[1],
+                line.polygon[2], line.polygon[3],
+                line.polygon[4], line.polygon[5],
+                line.polygon[6], line.polygon[7]
+              ] : [];
+              
+              // Handle words - check if exists and is an array
+              let words = [];
+              if (line.words && Array.isArray(line.words)) {
+                words = line.words.map(word => {
+                  const wordBoundingBox = word.polygon ? [
+                    word.polygon[0], word.polygon[1],
+                    word.polygon[2], word.polygon[3],
+                    word.polygon[4], word.polygon[5],
+                    word.polygon[6], word.polygon[7]
+                  ] : [];
+                  
+                  return {
+                    boundingBox: wordBoundingBox,
+                    text: word.content || '',
+                    confidence: word.confidence || 0.99
+                  };
+                });
+              }
+              
+              return {
+                boundingBox,
+                text: line.content || '',
+                words
+              };
+            }) || []
+          }))
+        }
+      };
+      
+      const totalLines = ocrData.analyzeResult.readResults.reduce((sum, page) => sum + page.lines.length, 0);
+      console.log(`Generated OCR data with ${totalLines} total lines across ${ocrData.analyzeResult.readResults.length} pages`);
+      return ocrData;
+    } catch (error: any) {
+      console.error('Failed to generate OCR data:', error);
+      console.error('Error stack:', error.stack);
+      throw new Error(`OCR generation failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Upload label data for a document
    */
   async uploadLabelData(
     containerClient: ContainerClient,
-    documentName: string,
+    documentPath: string,
     labels: any
   ): Promise<void> {
-    const labelFileName = `${documentName}.labels.json`;
+    // documentPath includes folder structure: userId/projectId/fileName
+    // For labeled training, Azure expects the document name in labels to be just the filename
+    const pathParts = documentPath.split('/');
+    const documentName = pathParts[pathParts.length - 1];
+    
+    // Keep the full path for blob storage
+    const labelFileName = `${documentPath}.labels.json`;
+    
+    // Ensure the labels object has the correct document name (just filename, not full path)
+    if (labels.document && labels.document !== documentName) {
+      console.log(`Adjusting document name in labels from '${labels.document}' to '${documentName}'`);
+      labels.document = documentName;
+    }
+    
     const labelData = JSON.stringify(labels, null, 2);
     const blockBlobClient = containerClient.getBlockBlobClient(labelFileName);
+    
+    console.log(`Uploading label file: ${labelFileName}`);
+    console.log(`Label document reference: ${documentName}`);
     
     await blockBlobClient.upload(
       Buffer.from(labelData),
@@ -117,12 +255,16 @@ export class AzureTrainingService {
         }
       }
     );
+
+    // OCR files are now generated during document upload
+    // No need to generate them here anymore
+    console.log(`OCR file should already exist for ${documentPath}`);
   }
 
   /**
    * Generate a SAS URL for the training container
    */
-  async generateTrainingSasUrl(containerClient: ContainerClient): Promise<string> {
+  async generateTrainingSasUrl(containerClient: ContainerClient, folderPrefix?: string): Promise<string> {
     if (!blobServiceClient) {
       throw new Error('Azure Storage not configured');
     }
@@ -140,15 +282,116 @@ export class AzureTrainingService {
 
     const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
     
+    // Start time should be slightly in the past to avoid clock skew issues
+    const startsOn = new Date();
+    startsOn.setMinutes(startsOn.getMinutes() - 5);
+    
     const sasOptions = {
       containerName: containerClient.containerName,
-      permissions: ContainerSASPermissions.parse("racwdl"), // read, add, create, write, delete, list
-      startsOn: new Date(),
+      permissions: ContainerSASPermissions.parse("rl"), // read and list permissions only for training
+      startsOn: startsOn,
       expiresOn: new Date(new Date().valueOf() + 3600 * 1000 * 24), // 24 hours
     };
 
     const sasToken = generateBlobSASQueryParameters(sasOptions, sharedKeyCredential).toString();
-    return `${containerClient.url}?${sasToken}`;
+    const sasUrl = `${containerClient.url}?${sasToken}`;
+    
+    // Always return container-level SAS URL
+    // The prefix is passed separately to the training API
+    console.log('Generated SAS URL:', {
+      containerUrl: containerClient.url,
+      hasPrefix: !!folderPrefix,
+      prefix: folderPrefix,
+      finalUrl: sasUrl
+    });
+    
+    return sasUrl;
+  }
+
+  /**
+   * List files in a specific folder within the container
+   */
+  async listTrainingFiles(containerClient: ContainerClient, prefix: string): Promise<string[]> {
+    const files: string[] = [];
+    
+    try {
+      // List all blobs with the given prefix
+      for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+        files.push(blob.name);
+      }
+      
+      console.log(`Found ${files.length} files with prefix "${prefix}":`, files);
+    } catch (error) {
+      console.error('Error listing blobs:', error);
+    }
+    
+    return files;
+  }
+
+  /**
+   * Validate training data structure for Azure Document Intelligence
+   */
+  async validateTrainingData(containerClient: ContainerClient, prefix: string, buildMode: DocumentModelBuildMode): Promise<{
+    isValid: boolean;
+    pdfCount: number;
+    labelCount: number;
+    ocrCount: number;
+    errors: string[];
+  }> {
+    const files = await this.listTrainingFiles(containerClient, prefix);
+    const errors: string[] = [];
+    
+    const pdfFiles = files.filter(f => f.endsWith('.pdf'));
+    const labelFiles = files.filter(f => f.endsWith('.labels.json'));
+    const ocrFiles = files.filter(f => f.endsWith('.ocr.json'));
+    
+    console.log('Training data validation:', {
+      prefix,
+      buildMode,
+      totalFiles: files.length,
+      pdfCount: pdfFiles.length,
+      labelCount: labelFiles.length,
+      ocrCount: ocrFiles.length
+    });
+    
+    // Minimum requirements
+    if (pdfFiles.length < 5) {
+      errors.push(`Insufficient PDF files. Found ${pdfFiles.length}, but need at least 5.`);
+    }
+    
+    // For labeled training, check label files
+    if (buildMode === 'template') {
+      if (labelFiles.length !== pdfFiles.length) {
+        errors.push(`Label file mismatch. Found ${pdfFiles.length} PDFs but ${labelFiles.length} label files.`);
+      }
+      
+      if (ocrFiles.length !== pdfFiles.length) {
+        errors.push(`OCR file mismatch. Found ${pdfFiles.length} PDFs but ${ocrFiles.length} OCR files.`);
+      }
+      
+      // Check file naming convention
+      for (const pdfFile of pdfFiles) {
+        const baseName = pdfFile.replace('.pdf', '');
+        const expectedLabel = `${baseName}.labels.json`;
+        const expectedOcr = `${baseName}.ocr.json`;
+        
+        if (!files.includes(expectedLabel)) {
+          errors.push(`Missing label file for ${pdfFile}. Expected: ${expectedLabel}`);
+        }
+        
+        if (!files.includes(expectedOcr)) {
+          errors.push(`Missing OCR file for ${pdfFile}. Expected: ${expectedOcr}`);
+        }
+      }
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      pdfCount: pdfFiles.length,
+      labelCount: labelFiles.length,
+      ocrCount: ocrFiles.length,
+      errors
+    };
   }
 
   /**
@@ -158,27 +401,139 @@ export class AzureTrainingService {
     const { modelId, modelName, description, buildMode, trainingDataUrl, prefix } = options;
 
     try {
+      console.log('Starting model training with parameters:', {
+        modelId,
+        modelName,
+        buildMode,
+        trainingDataUrl,
+        prefix
+      });
+
+      // Use container URL with prefix parameter
+      // Azure expects the container path in the URL with a separate prefix parameter
+      let finalTrainingUrl = trainingDataUrl;
+      let usePrefix = prefix;
+      
+      // Ensure prefix has a trailing slash for Azure
+      if (usePrefix && !usePrefix.endsWith('/')) {
+        usePrefix = usePrefix + '/';
+      }
+      
+      console.log('Using container URL with prefix parameter approach');
+
+      console.log('Final training parameters:', {
+        modelId,
+        buildMode,
+        trainingUrl: finalTrainingUrl,
+        prefix: usePrefix
+      });
+
       // Start the training operation
       const poller = await adminClient.beginBuildDocumentModel(
         modelId,
-        trainingDataUrl,
+        finalTrainingUrl,
         buildMode,
         {
           modelName,
           description,
-          prefix, // Optional: filter training documents by prefix
+          prefix: usePrefix, // Only use prefix for neural models or when not using folder URL
           onProgress: (state) => {
             console.log(`Training progress: ${state.status}`);
+            if (state.error) {
+              console.error('Training error details:', {
+                error: state.error,
+                code: state.error.code,
+                message: state.error.message,
+                details: state.error.details
+              });
+            }
           }
         }
       );
 
+      // Log initial operation state
+      const initialState = poller.getOperationState();
+      console.log('Initial operation state:', {
+        operationId: initialState.operationId,
+        status: initialState.status,
+        isStarted: initialState.isStarted,
+        isCompleted: initialState.isCompleted,
+        error: initialState.error
+      });
+
       // Don't wait for completion - return operation ID
-      return poller.getOperationState().operationId || modelId;
+      const operationId = initialState.operationId || modelId;
+      console.log('Training operation started with ID:', operationId);
+      return operationId;
     } catch (error: any) {
       console.error('Failed to start model training:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        innerError: error.innerError,
+        stack: error.stack
+      });
+      
+      // Provide more specific error messages
+      if (error.code === 'TrainingContentMissing') {
+        throw new Error(`Training failed: No training documents found at the specified location. Ensure your documents are properly uploaded and the folder structure is correct.`);
+      } else if (error.code === 'InvalidArgument') {
+        throw new Error(`Training failed: Invalid training configuration. ${error.message}`);
+      }
+      
       throw new Error(`Training failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Check training progress by operation ID
+   */
+  async checkOperationStatus(modelId: string, operationId: string): Promise<TrainingProgress> {
+    try {
+      // First try to get the operation status
+      const response = await fetch(
+        `${endpoint}/formrecognizer/operations/${operationId}?api-version=2023-07-31`,
+        {
+          headers: {
+            'Ocp-Apim-Subscription-Key': apiKey!
+          }
+        }
+      );
+
+      if (response.ok) {
+        const operation = await response.json();
+        console.log('Operation status:', operation);
+
+        if (operation.status === 'succeeded') {
+          return {
+            status: 'succeeded',
+            percentCompleted: 100
+          };
+        } else if (operation.status === 'failed') {
+          return {
+            status: 'failed',
+            error: operation.error?.message || 'Training failed',
+            percentCompleted: 0
+          };
+        } else if (operation.status === 'running') {
+          return {
+            status: 'running',
+            percentCompleted: operation.percentCompleted || 50
+          };
+        } else {
+          return {
+            status: 'notStarted',
+            percentCompleted: 0
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check operation status:', error);
+    }
+
+    // Fallback to checking model directly
+    return this.checkTrainingProgress(modelId);
   }
 
   /**
@@ -332,24 +687,41 @@ export class AzureTrainingService {
     labels: Array<{
       fieldName: string;
       fieldType: string;
-      boundingBoxes: number[][]; // Array of [x, y] coordinates
+      boundingBoxes: number[]; // [x1, y1, x2, y2] from frontend (already normalized 0-1)
       value: string;
       pageNumber: number;
+      pageWidth?: number;
+      pageHeight?: number;
     }>
   ) {
     const labelData = {
       document: documentName,
-      labels: labels.map(label => ({
-        label: label.fieldName,
-        key: null,
-        value: [
-          {
-            page: label.pageNumber,
-            text: label.value,
-            boundingBoxes: [label.boundingBoxes] // Azure expects array of bounding boxes
-          }
-        ]
-      }))
+      labels: labels.map(label => {
+        // Frontend sends normalized coordinates [x1, y1, x2, y2] in 0-1 range
+        // Azure expects 8 points representing 4 corners in clockwise order starting from top-left
+        const [x1, y1, x2, y2] = label.boundingBoxes;
+        
+        // Convert 4-point format to 8-point format (4 corners, clockwise from top-left)
+        // Format: [top-left-x, top-left-y, top-right-x, top-right-y, bottom-right-x, bottom-right-y, bottom-left-x, bottom-left-y]
+        const boundingBox = [
+          x1, y1,  // top-left corner
+          x2, y1,  // top-right corner
+          x2, y2,  // bottom-right corner
+          x1, y2   // bottom-left corner
+        ];
+        
+        return {
+          label: label.fieldName,
+          key: null,
+          value: [
+            {
+              page: label.pageNumber,
+              text: label.value || "", // Azure expects empty string if no value
+              boundingBoxes: [boundingBox]
+            }
+          ]
+        };
+      })
     };
 
     return labelData;

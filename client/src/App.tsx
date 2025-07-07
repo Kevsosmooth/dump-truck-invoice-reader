@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileRenameBuilder } from '@/components/FileRenameBuilder';
 import { ModelTrainingPage } from '@/pages/ModelTraining';
+import { OngoingTraining } from '@/components/ModelTraining/OngoingTraining';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Upload, 
@@ -307,6 +308,9 @@ function App() {
             color="pink"
           />
         </div>
+
+        {/* Ongoing Training Section */}
+        <OngoingTraining />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Upload Section */}

@@ -225,13 +225,13 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
       return;
     }
 
-    // Add the label
+    // Add the label immediately without text input dialog
     const newLabel: LabeledField = {
       id: Math.random().toString(36).substr(2, 9),
       name: fieldName,
       type: selectedFieldType,
       boundingBox: currentBox,
-      value: '', // Would extract from OCR in real app
+      value: '', // Empty value for template models
       pageNumber: 1
     };
 
@@ -244,6 +244,7 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
     setCurrentBox(null);
     // Don't clear fieldName so it persists for the next label
   };
+
 
   const removeLabel = (labelId: string) => {
     const updatedDocs = [...documents];
@@ -272,7 +273,7 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
                 label.boundingBox.x + label.boundingBox.width,
                 label.boundingBox.y + label.boundingBox.height
               ],
-              value: label.value || 'sample value',
+              value: label.value, // Send actual value, no fallback
               pageNumber: label.pageNumber
             }))
           })
@@ -692,6 +693,7 @@ export function DocumentLabeling({ projectId, onComplete }: DocumentLabelingProp
           </Button>
         </div>
       </div>
+
     </div>
   );
 }

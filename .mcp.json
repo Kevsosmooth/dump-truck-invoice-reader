@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "env": {}
+    },
+    "azure": {
+      "command": "npx",
+      "args": ["-y", "@azure/mcp@latest", "server", "start"],
+      "env": {
+        "AZURE_MCP_SUBSCRIPTION_ID": "bae303db-58c0-4c40-8a94-0131d7d9632c",
+        "AZURE_TENANT_ID": "3bbc1c13-3197-40af-b65d-0a915778e9aa"
+      }
+    }
+  }
+}

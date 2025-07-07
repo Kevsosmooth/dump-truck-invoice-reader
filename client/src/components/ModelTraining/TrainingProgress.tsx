@@ -68,6 +68,14 @@ export function TrainingProgress({ projectId, onComplete }: TrainingProgressProp
           modelId: data.modelId,
           estimatedTime: 25 // minutes
         });
+        
+        // Save project ID to localStorage for tracking
+        const savedProjects = localStorage.getItem('trainingProjects');
+        const projects = savedProjects ? JSON.parse(savedProjects) : [];
+        if (!projects.includes(projectId)) {
+          projects.push(projectId);
+          localStorage.setItem('trainingProjects', JSON.stringify(projects));
+        }
       } else {
         setTrainingStatus({
           status: 'failed',

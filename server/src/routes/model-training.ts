@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { AzureTrainingService } from '../services/azure-training-service';
 import { v4 as uuidv4 } from 'uuid';
+import { DocumentModelBuildMode } from '@azure/ai-form-recognizer';
 
 const router = express.Router();
 const trainingService = new AzureTrainingService();
@@ -32,6 +33,7 @@ interface TrainingProject {
   modelType: 'template' | 'neural';
   documents: TrainingDocument[];
   modelId?: string;
+  operationId?: string;
   containerUrl?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -39,11 +41,15 @@ interface TrainingProject {
 
 interface TrainingDocument {
   id: string;
-  fileName: string;
+  fileName: string; // Actual filename with UUID prefix
+  originalFileName?: string; // Original filename for display
   fileUrl: string;
   status: 'uploaded' | 'labeled';
   labels?: any[];
   pageCount: number;
+  fileSize?: number; // Size in bytes
+  buffer?: Buffer; // Temporary storage for demo
+  mimeType?: string; // MIME type for serving
 }
 
 // Simple in-memory storage
@@ -119,7 +125,11 @@ router.get('/projects/:projectId', async (req: Request, res: Response) => {
       status: project.status,
       modelType: project.modelType,
       documentsCount: project.documents.length,
-      documents: project.documents,
+      documents: project.documents.map(doc => ({
+        ...doc,
+        fileName: doc.originalFileName || doc.fileName, // Return original name for display
+        actualFileName: doc.fileName // Include actual filename if needed
+      })),
       createdAt: project.createdAt,
       updatedAt: project.updatedAt
     });
@@ -147,6 +157,25 @@ router.post('/projects/:projectId/documents', upload.array('documents', 20), asy
 
     const uploadedDocs: TrainingDocument[] = [];
 
+    // Check total size for model type limits
+    const existingSize = project.documents.reduce((sum, doc) => sum + (doc.fileSize || 0), 0);
+    const newSize = req.files.reduce((sum, file) => sum + file.size, 0);
+    const totalSize = existingSize + newSize;
+    
+    // Size limits: Template (50MB), Neural (1GB)
+    const maxSize = project.modelType === 'neural' ? 1024 * 1024 * 1024 : 50 * 1024 * 1024;
+    
+    if (totalSize > maxSize) {
+      res.status(400).json({ 
+        error: `Total training data exceeds ${project.modelType} model limit`,
+        maxSizeMB: Math.round(maxSize / (1024 * 1024)),
+        currentSizeMB: Math.round(existingSize / (1024 * 1024)),
+        attemptedSizeMB: Math.round(newSize / (1024 * 1024)),
+        totalSizeMB: Math.round(totalSize / (1024 * 1024))
+      });
+      return;
+    }
+
     // Upload each document to blob storage
     for (const file of req.files) {
       const docId = uuidv4();
@@ -157,11 +186,11 @@ router.post('/projects/:projectId/documents', upload.array('documents', 20), asy
       if (project.containerUrl) {
         // Upload to Azure Blob Storage
         const containerClient = await trainingService.createTrainingContainer(project.userId, project.id);
-        // Organize files in folders: userId/projectId/filename
-        const blobPath = `${project.userId}/${project.id}/${fileName}`;
-        fileUrl = await trainingService.uploadTrainingDocument(
+        // Upload to folder structure: userId/projectId/fileName
+        const filePath = `${project.userId}/${project.id}/${fileName}`;
+        fileUrl = await trainingService.uploadTrainingDocumentWithOcr(
           containerClient,
-          blobPath,
+          filePath,
           file.buffer,
           file.mimetype
         );
@@ -172,12 +201,14 @@ router.post('/projects/:projectId/documents', upload.array('documents', 20), asy
 
       const doc: TrainingDocument = {
         id: docId,
-        fileName: file.originalname,
+        fileName: fileName, // Store the actual filename with UUID prefix
         fileUrl,
         status: 'uploaded',
         pageCount: 1, // Would need to determine actual page count
+        fileSize: file.size,
         buffer: file.buffer, // Store buffer for serving
-        mimeType: file.mimetype
+        mimeType: file.mimetype,
+        originalFileName: file.originalname // Keep original name for display
       };
 
       project.documents.push(doc);
@@ -192,7 +223,7 @@ router.post('/projects/:projectId/documents', upload.array('documents', 20), asy
       projectId: project.id,
       uploadedDocuments: uploadedDocs.map(doc => ({
         id: doc.id,
-        fileName: doc.fileName,
+        fileName: doc.originalFileName || doc.fileName, // Return original name for display
         status: doc.status
       })),
       totalDocuments: project.documents.length
@@ -271,12 +302,14 @@ router.post('/projects/:projectId/documents/:documentId/labels', async (req: Req
     if (project.containerUrl) {
       const containerClient = await trainingService.createTrainingContainer(project.userId, project.id);
       
-      // Use the same path structure as the document
-      const documentPath = `${project.userId}/${project.id}/${document.fileName}`;
+      // Labels should be in same location as documents (userId/projectId/)
+      // Use the actual filename (with UUID) for the label format - this must match the PDF filename
       const labelData = trainingService.generateLabelFormat(document.fileName, labels);
       
-      console.log('Uploading labels for:', documentPath);
-      await trainingService.uploadLabelData(containerClient, documentPath, labelData);
+      // Use the full path with actual filename (including UUID) for blob storage
+      const filePath = `${project.userId}/${project.id}/${document.fileName}`;
+      console.log('Uploading labels for:', filePath);
+      await trainingService.uploadLabelData(containerClient, filePath, labelData);
     }
 
     // Check if all documents are labeled
@@ -311,19 +344,24 @@ router.post('/projects/:projectId/train', async (req: Request, res: Response) =>
     }
 
     // Validate project is ready
-    if (project.documents.length < 5) {
+    // Both neural and template models require at least 5 labeled documents
+    const minDocuments = 5;
+    if (project.documents.length < minDocuments) {
       res.status(400).json({ 
-        error: 'Minimum 5 documents required for training',
-        currentCount: project.documents.length
+        error: `Minimum ${minDocuments} document${minDocuments > 1 ? 's' : ''} required for ${project.modelType} model training`,
+        currentCount: project.documents.length,
+        modelType: project.modelType
       });
       return;
     }
 
+    // Both neural and template models require labeled documents
     const allLabeled = project.documents.every(d => d.status === 'labeled');
     if (!allLabeled) {
       res.status(400).json({ 
         error: 'All documents must be labeled before training',
-        unlabeledCount: project.documents.filter(d => d.status !== 'labeled').length
+        unlabeledCount: project.documents.filter(d => d.status !== 'labeled').length,
+        note: 'Both neural and template models require labeled training data'
       });
       return;
     }
@@ -339,17 +377,51 @@ router.post('/projects/:projectId/train', async (req: Request, res: Response) =>
       const containerClient = await trainingService.createTrainingContainer(project.userId, project.id);
       const sasUrl = await trainingService.generateTrainingSasUrl(containerClient);
 
+      // Map model type to DocumentModelBuildMode enum
+      const buildMode = project.modelType === 'neural' 
+        ? DocumentModelBuildMode.Neural 
+        : DocumentModelBuildMode.Template;
+
       // Start training
-      console.log('Starting training with SAS URL:', sasUrl);
-      console.log('Training folder path:', `${project.userId}/${project.id}/`);
+      const folderPath = `${project.userId}/${project.id}`;
       
+      // Log the SAS URL format for debugging
+      console.log('Container SAS URL:', sasUrl);
+      console.log('Training folder prefix:', folderPath);
+      
+      // Verify files exist before training
+      const files = await trainingService.listTrainingFiles(containerClient, folderPath);
+      console.log(`Verified ${files.length} files in training folder`);
+      
+      if (files.length === 0) {
+        throw new Error(`No training files found at prefix: ${folderPath}`);
+      }
+      
+      // Check for minimum required files
+      const pdfFiles = files.filter(f => f.endsWith('.pdf'));
+      const labelFiles = files.filter(f => f.endsWith('.labels.json'));
+      const ocrFiles = files.filter(f => f.endsWith('.ocr.json'));
+      
+      console.log(`Found ${pdfFiles.length} PDF files, ${labelFiles.length} label files, ${ocrFiles.length} OCR files`);
+      
+      if (pdfFiles.length < 5) {
+        throw new Error(`Insufficient training documents. Found ${pdfFiles.length} PDFs, but need at least 5.`);
+      }
+      
+      if (labelFiles.length !== pdfFiles.length) {
+        throw new Error(`Label file mismatch. Found ${pdfFiles.length} PDFs but ${labelFiles.length} label files.`);
+      }
+      
+      // Azure Document Intelligence expects:
+      // 1. Container-level SAS URL
+      // 2. Prefix without trailing slash to filter documents
       operationId = await trainingService.startModelTraining({
         modelId,
         modelName: project.name,
         description: project.description,
-        buildMode: project.modelType,
+        buildMode,
         trainingDataUrl: sasUrl,
-        prefix: `${project.userId}/${project.id}/` // Specify the folder prefix
+        prefix: folderPath // No trailing slash
       });
     } catch (error: any) {
       console.error('Training start error:', error);
@@ -364,6 +436,7 @@ router.post('/projects/:projectId/train', async (req: Request, res: Response) =>
     }
 
     project.status = 'training';
+    project.operationId = operationId;
     project.updatedAt = new Date();
 
     // Track user's models
@@ -399,7 +472,12 @@ router.get('/projects/:projectId/status', async (req: Request, res: Response) =>
     let trainingProgress = null;
     if (project.modelId && project.status === 'training') {
       try {
-        trainingProgress = await trainingService.checkTrainingProgress(project.modelId);
+        // Use operation ID if available for more accurate status
+        if (project.operationId) {
+          trainingProgress = await trainingService.checkOperationStatus(project.modelId, project.operationId);
+        } else {
+          trainingProgress = await trainingService.checkTrainingProgress(project.modelId);
+        }
         
         // Update project status based on training progress
         if (trainingProgress.status === 'succeeded') {
@@ -408,6 +486,7 @@ router.get('/projects/:projectId/status', async (req: Request, res: Response) =>
           project.status = 'failed';
         }
       } catch (error) {
+        console.log('Error checking training status:', error);
         console.log('Simulating training progress...');
         // Simulate training progress for simple mode
         const startTime = project.updatedAt.getTime();
@@ -445,8 +524,19 @@ router.get('/models', async (_req: Request, res: Response) => {
   try {
     const userId = 'demo-user'; // In production, get from auth
     
-    // Get model details from Azure
-    const models = await trainingService.listCustomModels(`user_${userId}_`);
+    // Get model details from Azure - first try with prefix, then get all
+    let models = await trainingService.listCustomModels(`user_${userId}_`);
+    
+    // Also get all models to see what's available
+    const allModels = await trainingService.listCustomModels();
+    
+    console.log(`Found ${models.length} models with prefix user_${userId}_`);
+    console.log(`Total models in account: ${allModels.length}`);
+    
+    // Log all model IDs for debugging
+    allModels.forEach(model => {
+      console.log(`Model ID: ${model.modelId}, Created: ${(model as any).createdOn}`);
+    });
     
     res.json({
       models: models.map(model => ({
@@ -456,7 +546,13 @@ router.get('/models', async (_req: Request, res: Response) => {
         createdAt: (model as any).createdOn || new Date().toISOString(),
         status: 'active'
       })),
-      totalCount: models.length
+      allModels: allModels.map(model => ({
+        id: model.modelId,
+        name: (model as any).modelName || model.modelId,
+        createdAt: (model as any).createdOn || new Date().toISOString()
+      })),
+      totalCount: models.length,
+      totalInAccount: allModels.length
     });
   } catch (error: any) {
     console.error('List models error:', error);
@@ -549,6 +645,43 @@ router.get('/account-info', async (_req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Account info error:', error);
     res.status(500).json({ error: 'Failed to get account info' });
+  }
+});
+
+// Direct Azure training status check endpoint
+router.get('/training/azure-status', async (req: Request, res: Response) => {
+  try {
+    const { modelId, operationId } = req.query;
+    
+    if (!modelId || !operationId) {
+      res.status(400).json({ error: 'modelId and operationId are required' });
+      return;
+    }
+    
+    try {
+      const trainingProgress = await trainingService.checkOperationStatus(
+        modelId as string, 
+        operationId as string
+      );
+      
+      res.json({
+        modelId,
+        operationId,
+        status: trainingProgress.status,
+        percentCompleted: trainingProgress.percentCompleted,
+        error: trainingProgress.error,
+        trainingProgress
+      });
+    } catch (error: any) {
+      console.error('Azure status check error:', error);
+      res.status(500).json({ 
+        error: 'Failed to check Azure training status',
+        details: error.message 
+      });
+    }
+  } catch (error: any) {
+    console.error('Azure status endpoint error:', error);
+    res.status(500).json({ error: 'Failed to process request' });
   }
 });
 
