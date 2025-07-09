@@ -1,28 +1,24 @@
-# Invoice Processor - Azure Document AI
+# Dump Truck Invoice Reader - Azure Document AI
 
-A multi-tenant invoice processing SaaS application that uses Microsoft Azure Document AI to extract structured data from invoices. Optimized for Azure's free tier with support for custom models.
+A specialized invoice processing application that uses Microsoft Azure Document AI to extract structured data from dump truck invoices. Built with simplicity in mind using JavaScript/JSX.
 
 ## Features
 
 - 📄 **Invoice Processing**: Extract structured data from PDF, JPEG, PNG, and TIFF files
-- 🤖 **Custom AI Models**: Support for tenant-specific custom models
-- 💳 **Credit System**: Pay-per-page processing with Stripe integration
-- 🔒 **Secure**: Azure AD B2C authentication with social logins
-- 📊 **Real-time Updates**: Live processing status with TanStack Query
-- 🎨 **Modern UI**: Built with React, TypeScript, and Shadcn/UI
-- 🐳 **Docker Ready**: Easy development and deployment with Docker Compose
+- 🤖 **Custom AI Models**: Trained specifically for dump truck invoices
+- 🔐 **Google Authentication**: Simple login with Google OAuth
+- 📊 **Real-time Processing**: Immediate results without queuing
+- 🎨 **Modern UI**: Built with React and Shadcn/UI
+- 🚀 **Simple Mode**: Test without database setup
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript + Vite + Shadcn/UI + TanStack Query
+- **Frontend**: React + JavaScript + Vite + Shadcn/UI
 - **Backend**: Node.js + Express + Prisma ORM
-- **Database**: PostgreSQL
-- **Queue**: Redis + Bull
+- **Database**: PostgreSQL (optional in simple mode)
 - **File Storage**: Azure Blob Storage
 - **AI**: Azure Document AI (Form Recognizer)
-- **Auth**: Azure AD B2C
-- **Payments**: Stripe
-- **Email**: SendGrid/Resend
+- **Auth**: Google OAuth with Passport.js
 
 ## Azure Free Tier Limitations
 
@@ -89,7 +85,6 @@ Create a `.env` file in the `/server` directory:
 ```env
 # Database
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/invoice_processor"
-REDIS_URL="redis://localhost:6379"
 
 # Azure Document Intelligence
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
@@ -100,8 +95,10 @@ AZURE_CUSTOM_MODEL_ID="your-custom-model-id"
 AZURE_STORAGE_CONNECTION_STRING="your-connection-string"
 AZURE_STORAGE_CONTAINER_NAME="invoice-files"
 
-# Authentication (optional)
-JWT_SECRET="your-jwt-secret"
+# Authentication
+SESSION_SECRET="your-session-secret"
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
 
 # Email (optional)
 SENDGRID_API_KEY="SG...."
@@ -151,13 +148,13 @@ Perfect for testing and development:
 ### Full Mode (With Database)
 For production and multi-user scenarios:
 - ✅ Persistent data storage
-- ✅ User authentication with Azure AD B2C
-- ✅ Background job processing with Redis/Bull
+- ✅ User authentication with Google OAuth
+- ✅ Synchronous job processing
 - ✅ File storage with Azure Blob Storage
-- ✅ Payment processing with Stripe
-- ✅ Email notifications
+- ✅ Payment processing with Stripe (optional)
+- ✅ Email notifications (optional)
 - ✅ Audit trails and analytics
-- ❌ Requires Docker and database setup
+- ❌ Requires PostgreSQL setup
 
 ## Development
 
@@ -174,7 +171,7 @@ npm run start:simple # Start production build in simple mode
 
 #### Frontend Scripts
 ```bash
-npm run dev      # Start development server (port 3000)
+npm run dev      # Start development server (port 5173)
 npm run build    # Build for production
 npm run preview  # Preview production build
 npm run lint     # Run ESLint
@@ -196,8 +193,9 @@ invoice-processor/
 │   ├── src/
 │   │   ├── routes/     # API routes
 │   │   ├── services/   # Business logic
-│   │   ├── jobs/       # Bull job processors
-│   │   └── index.ts    # Server entry point
+│   │   ├── config/     # Configuration (passport)
+│   │   ├── middleware/ # Auth middleware
+│   │   └── index.js    # Server entry point
 │   ├── prisma/         # Database schema
 │   └── package.json
 ├── docker/              # Docker configurations
