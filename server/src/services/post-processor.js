@@ -24,6 +24,9 @@ export async function postProcessJob(jobId) {
     // Extract relevant fields for naming
     const fields = job.extractedFields;
     
+    // Debug: Log all available fields
+    console.log(`Available fields for job ${jobId}:`, Object.keys(fields));
+    
     // Try to find company name, ticket number, and date
     let companyName = '';
     let ticketNumber = '';
@@ -75,12 +78,13 @@ export async function postProcessJob(jobId) {
     const session = job.session;
     const processedBlobPath = `${session.blobPrefix}processed/${newFileName}`;
     
-    // Extract blob path from URL
+    // Extract blob path from URL and decode it
     // The blobUrl might be something like: https://storage.blob.core.windows.net/documents/users/1/sessions/uuid/originals/filename.pdf
     const url = new URL(job.blobUrl);
     const pathParts = url.pathname.split('/');
-    // Remove the container name (first part after /)
-    const blobPath = pathParts.slice(2).join('/');
+    // Remove the container name (first part after /) and decode each part
+    const decodedParts = pathParts.slice(2).map(part => decodeURIComponent(part));
+    const blobPath = decodedParts.join('/');
     
     console.log(`Downloading from blob path: ${blobPath}`);
     
@@ -131,25 +135,61 @@ function extractFieldValue(field) {
  */
 function formatDate(dateStr) {
   try {
-    // Try to parse the date
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) {
-      return date.toISOString().split('T')[0];
+    if (!dateStr || dateStr === '') {
+      return new Date().toISOString().split('T')[0];
     }
     
-    // Try common date formats
-    // MM/DD/YYYY or MM-DD-YYYY
-    const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-    if (match) {
-      const month = match[1].padStart(2, '0');
-      const day = match[2].padStart(2, '0');
-      const year = match[3];
+    // Handle various date formats
+    let parsedDate = null;
+    
+    // Try ISO format first
+    parsedDate = new Date(dateStr);
+    if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900) {
+      return parsedDate.toISOString().split('T')[0];
+    }
+    
+    // Try MM/DD/YYYY or MM-DD-YYYY
+    const usFormat = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (usFormat) {
+      const month = usFormat[1].padStart(2, '0');
+      const day = usFormat[2].padStart(2, '0');
+      const year = usFormat[3];
       return `${year}-${month}-${day}`;
     }
     
-    return dateStr;
+    // Try DD/MM/YYYY or DD-MM-YYYY
+    const euFormat = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (euFormat) {
+      const day = euFormat[1].padStart(2, '0');
+      const month = euFormat[2].padStart(2, '0');
+      const year = euFormat[3];
+      // Validate month is 1-12
+      if (parseInt(month) <= 12) {
+        return `${year}-${month}-${day}`;
+      }
+    }
+    
+    // Try Month DD, YYYY format (e.g., "June 06, 2025")
+    const monthNameFormat = dateStr.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
+    if (monthNameFormat) {
+      const monthName = monthNameFormat[1];
+      const day = monthNameFormat[2].padStart(2, '0');
+      const year = monthNameFormat[3];
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthIndex = monthNames.findIndex(m => m.toLowerCase().startsWith(monthName.toLowerCase()));
+      if (monthIndex !== -1) {
+        const month = (monthIndex + 1).toString().padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    
+    // Default to today's date if parsing fails
+    console.log(`Could not parse date: ${dateStr}, using today's date`);
+    return new Date().toISOString().split('T')[0];
   } catch (error) {
-    return dateStr;
+    console.error(`Error formatting date: ${dateStr}`, error);
+    return new Date().toISOString().split('T')[0];
   }
 }
 
