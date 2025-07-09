@@ -38,11 +38,14 @@ model Session {
   userId          Int
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   token           String           @unique
+  status          SessionStatus    @default(ACTIVE)
   expiresAt       DateTime
   createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   
   @@index([userId])
   @@index([token])
+  @@index([status])
 }
 
 enum UserRole {
@@ -147,6 +150,7 @@ model ProcessingSession {
 }
 
 enum SessionStatus {
+  ACTIVE
   UPLOADING
   PROCESSING
   COMPLETED
@@ -219,4 +223,27 @@ enum FileAccessType {
   DELETE
   EXPIRE
   VIEW
+}
+
+model CleanupLog {
+  id                String           @id @default(uuid())
+  startedAt         DateTime
+  completedAt       DateTime
+  sessionsProcessed Int              @default(0)
+  sessionsExpired   Int              @default(0)
+  jobsExpired       Int              @default(0)
+  blobsDeleted      Int              @default(0)
+  errors            String?          // JSON array of error messages
+  status            CleanupStatus    @default(RUNNING)
+  createdAt         DateTime         @default(now())
+  
+  @@index([status])
+  @@index([startedAt])
+}
+
+enum CleanupStatus {
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
 }

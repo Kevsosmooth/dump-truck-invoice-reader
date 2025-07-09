@@ -1,0 +1,259 @@
+import { PrismaClient } from '@prisma/client';
+import { BlobServiceClient } from '@azure/storage-blob';
+import cron from 'node-cron';
+
+const prisma = new PrismaClient();
+
+// Azure Storage configuration
+const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const containerName = process.env.AZURE_STORAGE_CONTAINER || 'invoices';
+
+// Initialize blob service client
+let blobServiceClient;
+let containerClient;
+
+if (connectionString) {
+  blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  containerClient = blobServiceClient.getContainerClient(containerName);
+}
+
+/**
+ * Delete all blobs associated with a session
+ * @param {string} sessionId - The session ID to cleanup blobs for
+ * @returns {Promise<number>} - Number of blobs deleted
+ */
+export async function cleanupSessionBlobs(sessionId) {
+  if (!containerClient) {
+    console.warn('Azure Storage not configured, skipping blob cleanup');
+    return 0;
+  }
+
+  let deletedCount = 0;
+
+  try {
+    // List all blobs with the session prefix
+    const blobs = containerClient.listBlobsFlat({ prefix: `${sessionId}/` });
+
+    for await (const blob of blobs) {
+      try {
+        await containerClient.deleteBlob(blob.name);
+        deletedCount++;
+        console.log(`Deleted blob: ${blob.name}`);
+      } catch (error) {
+        console.error(`Failed to delete blob ${blob.name}:`, error.message);
+      }
+    }
+
+    console.log(`Deleted ${deletedCount} blobs for session ${sessionId}`);
+  } catch (error) {
+    console.error(`Error cleaning up blobs for session ${sessionId}:`, error.message);
+  }
+
+  return deletedCount;
+}
+
+/**
+ * Main cleanup function for expired sessions
+ * @param {number} hoursThreshold - Number of hours after which sessions are considered expired (default: 24)
+ * @returns {Promise<Object>} - Cleanup statistics
+ */
+export async function cleanupExpiredSessions(hoursThreshold = 24) {
+  const startTime = Date.now();
+  const stats = {
+    sessionsProcessed: 0,
+    sessionsExpired: 0,
+    jobsExpired: 0,
+    blobsDeleted: 0,
+    errors: []
+  };
+
+  try {
+    console.log(`Starting cleanup process for sessions older than ${hoursThreshold} hours...`);
+
+    // Calculate the expiration threshold
+    const expirationDate = new Date();
+    expirationDate.setHours(expirationDate.getHours() - hoursThreshold);
+
+    // Find all sessions that should be expired
+    const expiredSessions = await prisma.processingSession.findMany({
+      where: {
+        createdAt: {
+          lt: expirationDate
+        },
+        status: {
+          not: 'EXPIRED'
+        }
+      },
+      include: {
+        jobs: true
+      }
+    });
+
+    stats.sessionsProcessed = expiredSessions.length;
+    console.log(`Found ${expiredSessions.length} sessions to expire`);
+
+    // Process each expired session
+    for (const session of expiredSessions) {
+      try {
+        // Start a transaction to update session and jobs
+        await prisma.$transaction(async (tx) => {
+          // Update all non-completed jobs to EXPIRED
+          const jobUpdateResult = await tx.job.updateMany({
+            where: {
+              sessionId: session.id,
+              status: {
+                notIn: ['COMPLETED', 'FAILED', 'EXPIRED']
+              }
+            },
+            data: {
+              status: 'EXPIRED',
+              updatedAt: new Date()
+            }
+          });
+
+          stats.jobsExpired += jobUpdateResult.count;
+
+          // Update session status to EXPIRED
+          await tx.processingSession.update({
+            where: { id: session.id },
+            data: {
+              status: 'EXPIRED',
+              updatedAt: new Date()
+            }
+          });
+
+          stats.sessionsExpired++;
+        });
+
+        // Clean up Azure blobs for this session
+        const blobsDeleted = await cleanupSessionBlobs(session.id);
+        stats.blobsDeleted += blobsDeleted;
+
+        console.log(`Expired session ${session.id}: ${session.jobs.length} jobs, ${blobsDeleted} blobs deleted`);
+      } catch (error) {
+        const errorMsg = `Failed to process session ${session.id}: ${error.message}`;
+        console.error(errorMsg);
+        stats.errors.push(errorMsg);
+      }
+    }
+
+    // Also handle expired authentication sessions
+    const expiredAuthSessions = await prisma.session.findMany({
+      where: {
+        createdAt: {
+          lt: expirationDate
+        },
+        status: {
+          not: 'EXPIRED'
+        }
+      }
+    });
+
+    for (const authSession of expiredAuthSessions) {
+      try {
+        await prisma.session.update({
+          where: { id: authSession.id },
+          data: {
+            status: 'EXPIRED',
+            updatedAt: new Date()
+          }
+        });
+      } catch (error) {
+        console.error(`Failed to expire auth session ${authSession.id}:`, error.message);
+      }
+    }
+
+    // Log cleanup summary
+    const duration = Date.now() - startTime;
+    console.log('Cleanup completed:', {
+      duration: `${duration}ms`,
+      sessionsProcessed: stats.sessionsProcessed,
+      sessionsExpired: stats.sessionsExpired,
+      jobsExpired: stats.jobsExpired,
+      blobsDeleted: stats.blobsDeleted,
+      errors: stats.errors.length
+    });
+
+    // Store cleanup log in database
+    await prisma.cleanupLog.create({
+      data: {
+        startedAt: new Date(startTime),
+        completedAt: new Date(),
+        sessionsProcessed: stats.sessionsProcessed,
+        sessionsExpired: stats.sessionsExpired,
+        jobsExpired: stats.jobsExpired,
+        blobsDeleted: stats.blobsDeleted,
+        errors: stats.errors.length > 0 ? JSON.stringify(stats.errors) : null,
+        status: stats.errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'
+      }
+    }).catch(err => {
+      console.error('Failed to store cleanup log:', err.message);
+    });
+
+  } catch (error) {
+    console.error('Cleanup process failed:', error);
+    stats.errors.push(`Fatal error: ${error.message}`);
+
+    // Try to log the failure
+    await prisma.cleanupLog.create({
+      data: {
+        startedAt: new Date(startTime),
+        completedAt: new Date(),
+        sessionsProcessed: stats.sessionsProcessed,
+        sessionsExpired: stats.sessionsExpired,
+        jobsExpired: stats.jobsExpired,
+        blobsDeleted: stats.blobsDeleted,
+        errors: JSON.stringify(stats.errors),
+        status: 'FAILED'
+      }
+    }).catch(err => {
+      console.error('Failed to store cleanup error log:', err.message);
+    });
+  }
+
+  return stats;
+}
+
+/**
+ * Schedule recurring cleanup
+ * @param {string} cronExpression - Cron expression for scheduling (default: daily at 2 AM)
+ * @param {number} hoursThreshold - Number of hours after which sessions are considered expired
+ * @returns {Object} - Cron task object
+ */
+export function scheduleCleanup(cronExpression = '0 2 * * *', hoursThreshold = 24) {
+  console.log(`Scheduling cleanup with cron expression: ${cronExpression}`);
+  
+  const task = cron.schedule(cronExpression, async () => {
+    console.log('Running scheduled cleanup...');
+    await cleanupExpiredSessions(hoursThreshold);
+  });
+
+  task.start();
+  console.log('Cleanup scheduled successfully');
+  
+  return task;
+}
+
+/**
+ * Run cleanup once (for manual execution)
+ */
+export async function runCleanup() {
+  try {
+    const stats = await cleanupExpiredSessions();
+    console.log('Manual cleanup completed:', stats);
+    process.exit(0);
+  } catch (error) {
+    console.error('Manual cleanup failed:', error);
+    process.exit(1);
+  }
+}
+
+// Allow running as a script
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // Check for command line arguments
+  const args = process.argv.slice(2);
+  const hoursThreshold = args[0] ? parseInt(args[0]) : 24;
+  
+  console.log(`Running manual cleanup for sessions older than ${hoursThreshold} hours...`);
+  runCleanup();
+}

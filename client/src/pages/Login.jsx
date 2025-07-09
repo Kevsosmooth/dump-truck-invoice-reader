@@ -52,7 +52,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
@@ -92,7 +92,7 @@ export function LoginPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   id="email"
                   type="email"
@@ -108,7 +108,7 @@ export function LoginPage() {
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   id="password"
                   type="password"
@@ -149,7 +149,7 @@ export function LoginPage() {
               <Separator />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-gray-500">Or continue with</span>
+              <span className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">Or continue with</span>
             </div>
           </div>
 
@@ -186,7 +186,7 @@ export function LoginPage() {
                 Don't have an account?{' '}
                 <button
                   type="button"
-                  className="text-indigo-600 hover:underline font-medium"
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
                   onClick={() => {
                     setIsLogin(false);
                     setError('');
@@ -200,7 +200,7 @@ export function LoginPage() {
                 Already have an account?{' '}
                 <button
                   type="button"
-                  className="text-indigo-600 hover:underline font-medium"
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
                   onClick={() => {
                     setIsLogin(true);
                     setError('');

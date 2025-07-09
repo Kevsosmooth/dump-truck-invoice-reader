@@ -40,6 +40,77 @@ function App() {
   const [pendingFiles, setPendingFiles] = useState([]);
   const [filePageCounts, setFilePageCounts] = useState({});
   const [modelFields, setModelFields] = useState(null);
+  
+  // Session management
+  const [currentSession, setCurrentSession] = useState(null);
+  const [sessionProgress, setSessionProgress] = useState({ current: 0, total: 0, status: 'idle' });
+
+  // Session recovery from localStorage
+  useEffect(() => {
+    const storedSession = localStorage.getItem('activeSession');
+    if (storedSession) {
+      const session = JSON.parse(storedSession);
+      // Check if session is not expired (24 hours)
+      const sessionDate = new Date(session.createdAt);
+      const now = new Date();
+      const hoursDiff = (now - sessionDate) / (1000 * 60 * 60);
+      
+      if (hoursDiff < 24) {
+        setCurrentSession(session);
+        // Check session status from server
+        checkSessionStatus(session.id);
+      } else {
+        // Session expired, remove from localStorage
+        localStorage.removeItem('activeSession');
+      }
+    }
+  }, []);
+
+  // Check session status from server
+  const checkSessionStatus = async (sessionId) => {
+    try {
+      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/status`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setSessionProgress({
+          current: data.processedFiles,
+          total: data.totalFiles,
+          status: data.status
+        });
+        
+        // If session is complete, update the session but don't remove immediately
+        if (data.status === 'completed' || data.status === 'failed') {
+          if (data.status === 'completed') {
+            // Keep session for download
+            const updatedSession = {
+              ...currentSession,
+              status: 'completed'
+            };
+            setCurrentSession(updatedSession);
+            localStorage.setItem('activeSession', JSON.stringify(updatedSession));
+          } else {
+            // Failed session, remove it
+            localStorage.removeItem('activeSession');
+            setCurrentSession(null);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking session status:', error);
+    }
+  };
+
+  // Poll session status when there's an active session
+  useEffect(() => {
+    if (currentSession && sessionProgress.status === 'processing') {
+      const interval = setInterval(() => {
+        checkSessionStatus(currentSession.id);
+      }, 2000); // Check every 2 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [currentSession, sessionProgress.status]);
 
   // Fetch model information when model changes
   useEffect(() => {
@@ -79,6 +150,12 @@ function App() {
     e.preventDefault();
     setIsDragging(false);
     
+    // Don't allow new uploads if session is in progress
+    if (currentSession && sessionProgress.status === 'processing') {
+      alert('Please wait for the current session to complete before uploading new files.');
+      return;
+    }
+    
     const droppedFiles = Array.from(e.dataTransfer.files).filter(
       file => file.type === 'application/pdf'
     );
@@ -91,6 +168,13 @@ function App() {
   };
 
   const handleFileSelect = (e) => {
+    // Don't allow new uploads if session is in progress
+    if (currentSession && sessionProgress.status === 'processing') {
+      alert('Please wait for the current session to complete before uploading new files.');
+      e.target.value = '';
+      return;
+    }
+    
     const selectedFiles = Array.from(e.target.files || []).filter(
       file => file.type === 'application/pdf'
     );
@@ -117,7 +201,7 @@ function App() {
 
   const handleConfirmUpload = () => {
     setFiles(pendingFiles);
-    uploadFiles(pendingFiles);
+    createSessionAndUpload(pendingFiles);
     setShowConfirmModal(false);
   };
 
@@ -135,53 +219,33 @@ function App() {
   const [showRenameBuilder, setShowRenameBuilder] = useState(false);
   const [renameData, setRenameData] = useState(null);
 
-  // Handle multiple file uploads
-  const uploadFiles = async (filesToUpload) => {
+  // Create session and upload multiple files
+  const createSessionAndUpload = async (filesToUpload) => {
     setIsUploading(true);
-    setUploadProgress({ current: 0, total: filesToUpload.length });
+    setSessionProgress({ current: 0, total: filesToUpload.length, status: 'processing' });
     
-    const pendingRenames = [];
+    // Create a new session
+    const sessionId = Date.now().toString();
+    const session = {
+      id: sessionId,
+      createdAt: new Date().toISOString(),
+      totalFiles: filesToUpload.length,
+      processedFiles: 0,
+      files: filesToUpload.map(f => ({ name: f.name, status: 'pending' }))
+    };
     
-    for (let i = 0; i < filesToUpload.length; i++) {
-      setUploadProgress({ current: i + 1, total: filesToUpload.length });
-      
-      try {
-        const result = await uploadSingleFile(filesToUpload[i]);
-        
-        if (result && result.needsRenaming && result.availableFields) {
-          pendingRenames.push({
-            availableFields: result.availableFields,
-            originalFileName: result.originalFileName,
-            sessionId: result.sessionId,
-            result: result
-          });
-        }
-      } catch (error) {
-        console.error(`Failed to upload ${filesToUpload[i].name}:`, error);
-      }
-    }
+    setCurrentSession(session);
+    localStorage.setItem('activeSession', JSON.stringify(session));
     
-    setIsUploading(false);
-    setFiles([]);
-    
-    // Reset file input
-    const fileInput = document.querySelector('input[type="file"]');
-    if (fileInput) {
-      fileInput.value = '';
-    }
-    
-    // Handle batch renaming if needed
-    if (pendingRenames.length > 0) {
-      // For now, show rename builder for the first file that needs it
-      setRenameData(pendingRenames[0]);
-      setShowRenameBuilder(true);
-    }
-  };
-
-  const uploadSingleFile = async (fileToUpload) => {
+    // Prepare FormData with all files
     const formData = new FormData();
-    formData.append('file', fileToUpload);
+    formData.append('sessionId', sessionId);
     formData.append('modelId', selectedModel);
+    
+    // Add all files to FormData
+    filesToUpload.forEach((file) => {
+      formData.append('files', file);
+    });
 
     try {
       const response = await fetch('http://localhost:3003/api/jobs/upload', {
@@ -192,23 +256,66 @@ function App() {
       const result = await response.json();
       
       if (result.success) {
-        console.log('Extraction successful:', result);
+        console.log('Session created successfully:', result);
         
-        // Don't show rename builder here - handle it in uploadFiles
-        if (!result.needsRenaming || !result.availableFields) {
-          // Just add to recent jobs if no renaming needed
-          finishProcessing(result);
-        }
+        // Update session with server response
+        const updatedSession = {
+          ...session,
+          serverId: result.sessionId,
+          status: result.status
+        };
+        setCurrentSession(updatedSession);
+        localStorage.setItem('activeSession', JSON.stringify(updatedSession));
         
-        return result;
+        // Start polling for status
+        checkSessionStatus(result.sessionId);
       } else {
-        alert(`❌ Error processing ${fileToUpload.name}: ${result.error}\n\n${result.details || ''}`);
-        return null;
+        alert(`❌ Error creating session: ${result.error}\n\n${result.details || ''}`);
+        localStorage.removeItem('activeSession');
+        setCurrentSession(null);
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert(`❌ Failed to upload ${fileToUpload.name}. Make sure the backend is running on port 3003.`);
-      return null;
+      alert(`❌ Failed to upload files. Make sure the backend is running on port 3003.`);
+      localStorage.removeItem('activeSession');
+      setCurrentSession(null);
+    } finally {
+      setIsUploading(false);
+      setFiles([]);
+      
+      // Reset file input
+      const fileInput = document.querySelector('input[type="file"]');
+      if (fileInput) {
+        fileInput.value = '';
+      }
+    }
+  };
+
+  // Download session results
+  const downloadSessionResults = async (sessionId) => {
+    try {
+      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/download`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session_${sessionId}_results.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        // Clear session after download
+        localStorage.removeItem('activeSession');
+        setCurrentSession(null);
+        setSessionProgress({ current: 0, total: 0, status: 'idle' });
+      } else {
+        alert('Failed to download session results');
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download session results');
     }
   };
 
@@ -314,7 +421,7 @@ function App() {
   // }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950">
       {/* File Rename Builder Modal */}
       {showRenameBuilder && renameData && (
         <FileRenameBuilder
@@ -350,7 +457,7 @@ function App() {
             {/* Files List */}
             <div className="space-y-2">
               <h4 className="text-sm font-medium">Documents to Process:</h4>
-              <div className="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-3 bg-gray-50">
+              <div className="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
                 {pendingFiles.map((file, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm">
                     <span className="truncate flex-1 pr-2">{file.name}</span>
@@ -363,9 +470,9 @@ function App() {
             </div>
 
             {/* Summary */}
-            <div className="grid grid-cols-2 gap-3 p-4 bg-blue-50 rounded-lg">
+            <div className="grid grid-cols-2 gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Documents:</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Total Documents:</span>
                 <span className="font-medium">{pendingFiles.length}</span>
               </div>
               <div className="flex justify-between items-center">
@@ -385,7 +492,7 @@ function App() {
             {/* Fields that will be extracted */}
             <div className="space-y-2">
               <h4 className="text-sm font-medium">Fields to Extract:</h4>
-              <div className="max-h-40 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+              <div className="max-h-40 overflow-y-auto border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
                 {modelFields === null ? (
                   <div className="text-xs text-gray-500 text-center py-2">
                     <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
@@ -440,13 +547,13 @@ function App() {
 
       {/* Animated background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute top-40 left-40 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 dark:bg-purple-600 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 dark:opacity-10 animate-blob"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-yellow-300 dark:bg-yellow-600 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 dark:opacity-10 animate-blob animation-delay-2000"></div>
+        <div className="absolute top-40 left-40 w-80 h-80 bg-pink-300 dark:bg-pink-600 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-xl opacity-20 dark:opacity-10 animate-blob animation-delay-4000"></div>
       </div>
 
       {/* Header */}
-      <header className="relative bg-white/70 backdrop-blur-md shadow-sm border-b border-gray-100">
+      <header className="relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-md shadow-sm border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
@@ -454,10 +561,10 @@ function App() {
                 <FileCheck className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">
                   Dump Truck Invoice Reader
                 </h1>
-                <p className="text-xs text-gray-500">Automated Document Processing</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Automated Document Processing</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -465,7 +572,7 @@ function App() {
                 <Zap className="h-4 w-4 text-emerald-600" />
                 <span className="text-sm font-semibold text-emerald-700">{user?.credits || 0} Credits</span>
               </div>
-              <Button variant="outline" size="sm" className="hover:bg-gray-50 transition-colors" onClick={logout}>
+              <Button variant="outline" size="sm" className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" onClick={logout}>
                 Sign Out
               </Button>
             </div>
@@ -513,7 +620,7 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Upload Section */}
           <div className="lg:col-span-2 space-y-6">
-            <Card className="overflow-hidden border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+            <Card className="overflow-hidden border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white pb-20">
                 <div className="flex items-center justify-between">
                   <div>
@@ -521,7 +628,7 @@ function App() {
                       <Sparkles className="h-6 w-6" />
                       Smart Invoice Processing
                     </CardTitle>
-                    <CardDescription className="text-indigo-100 mt-2">
+                    <CardDescription className="text-indigo-100 dark:text-indigo-200 mt-2">
                       Upload your invoices for instant automated data extraction
                     </CardDescription>
                   </div>
@@ -529,10 +636,10 @@ function App() {
               </CardHeader>
               <CardContent className="-mt-10">
                 <div
-                  className={`relative bg-white rounded-2xl shadow-lg border-2 border-dashed transition-all duration-300 ${
+                  className={`relative bg-white dark:bg-gray-800 rounded-2xl shadow-lg border-2 border-dashed transition-all duration-300 ${
                     isDragging 
-                      ? 'border-indigo-500 bg-indigo-50 scale-105 shadow-2xl' 
-                      : 'border-gray-200 hover:border-indigo-300 hover:shadow-xl'
+                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 scale-105 shadow-2xl' 
+                      : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-xl'
                   }`}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
@@ -548,10 +655,10 @@ function App() {
                         isDragging ? 'text-indigo-600 scale-110' : 'text-indigo-500'
                       }`} />
                     </div>
-                    <p className="mt-4 text-lg font-medium text-gray-700">
+                    <p className="mt-4 text-lg font-medium text-gray-700 dark:text-gray-200">
                       Drop your invoices here
                     </p>
-                    <p className="text-sm text-gray-500 mt-1">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                       or click to browse multiple files from your computer
                     </p>
                     <input
@@ -567,26 +674,31 @@ function App() {
                       size="lg" 
                       className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl"
                       onClick={() => document.getElementById('file-upload')?.click()}
-                      disabled={isUploading}
+                      disabled={isUploading || (currentSession && sessionProgress.status === 'processing')}
                     >
                       {isUploading ? (
                         <>
                           <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                          Processing {uploadProgress.current}/{uploadProgress.total}...
+                          Creating Session...
+                        </>
+                      ) : currentSession && sessionProgress.status === 'processing' ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Session in Progress
                         </>
                       ) : (
                         'Select Invoices'
                       )}
                     </Button>
                     {files.length > 0 && (
-                      <div className="mt-6 p-4 bg-emerald-50 rounded-lg border border-emerald-200 animate-in slide-in-from-bottom duration-300">
-                        <p className="text-sm font-medium text-emerald-700 flex items-center gap-2 mb-2">
+                      <div className="mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800 animate-in slide-in-from-bottom duration-300">
+                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-2 mb-2">
                           <CheckCircle2 className="h-4 w-4" />
                           {files.length} file{files.length > 1 ? 's' : ''} ready to process
                         </p>
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {files.map((f, idx) => (
-                            <p key={idx} className="text-xs text-emerald-600">
+                            <p key={idx} className="text-xs text-emerald-600 dark:text-emerald-400">
                               • {f.name}
                             </p>
                           ))}
@@ -598,14 +710,14 @@ function App() {
 
                 <div className="mt-6 space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Model Selection
                     </label>
                     <Select value={selectedModel} onValueChange={setSelectedModel}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select a model" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white">
+                      <SelectContent className="bg-white dark:bg-gray-800">
                         <SelectItem value="Silvi_Reader_Full_2.0">
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="text-xs">Custom</Badge>
@@ -614,11 +726,43 @@ function App() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Train custom models to extract specific data from your invoices
                     </p>
                   </div>
                 </div>
+
+                {/* Session Recovery Alert */}
+                {currentSession && sessionProgress.status === 'processing' && (
+                  <Alert className="mt-6 border-amber-200 bg-amber-50">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-amber-700">
+                      <strong>Session in Progress:</strong> You have an active processing session with {sessionProgress.total} files. 
+                      {sessionProgress.current} of {sessionProgress.total} files have been processed.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Session Expiry Warning */}
+                {currentSession && (() => {
+                  const sessionDate = new Date(currentSession.createdAt);
+                  const now = new Date();
+                  const hoursElapsed = (now - sessionDate) / (1000 * 60 * 60);
+                  const hoursRemaining = 24 - hoursElapsed;
+                  
+                  if (hoursRemaining < 2 && hoursRemaining > 0) {
+                    return (
+                      <Alert className="mt-6 border-red-200 bg-red-50">
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                        <AlertDescription className="text-red-700">
+                          <strong>Session Expiring Soon:</strong> This session will expire in {Math.floor(hoursRemaining * 60)} minutes. 
+                          Please download your results before they are removed.
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  }
+                  return null;
+                })()}
 
                 <Alert className="mt-6 border-indigo-200 bg-indigo-50">
                   <Zap className="h-4 w-4 text-indigo-600" />
@@ -631,28 +775,39 @@ function App() {
             </Card>
 
             {/* Recent Jobs */}
-            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+            <Card className="border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-xl flex items-center gap-2">
                   <Clock className="h-5 w-5 text-indigo-600" />
-                  Recent Processing Activity
+                  Recent Processing Sessions
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {recentJobs.length === 0 ? (
+                  {recentJobs.length === 0 && !currentSession ? (
                     <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="text-sm">No documents processed yet</p>
-                      <p className="text-xs mt-1">Upload your first invoice to get started</p>
+                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                      <p className="text-sm text-gray-500 dark:text-gray-400">No documents processed yet</p>
+                      <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">Upload your first invoice to get started</p>
                     </div>
                   ) : (
-                    recentJobs.map((job) => (
-                      <JobItemWithDownload
-                        key={job.id}
-                        job={job}
-                      />
-                    ))
+                    <>
+                      {/* Show current session if exists */}
+                      {currentSession && (
+                        <SessionItem
+                          session={currentSession}
+                          progress={sessionProgress}
+                          onDownload={() => downloadSessionResults(currentSession.serverId || currentSession.id)}
+                        />
+                      )}
+                      {/* Show recent jobs */}
+                      {recentJobs.map((job) => (
+                        <JobItemWithDownload
+                          key={job.id}
+                          job={job}
+                        />
+                      ))}
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -661,14 +816,17 @@ function App() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Upload Progress or Credit Balance */}
-            {isUploading && uploadProgress.total > 1 ? (
+            {/* Session Progress */}
+            {currentSession && sessionProgress.status === 'processing' ? (
               <Card className="border-0 shadow-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Processing Files
+                    Processing Session
                   </CardTitle>
+                  <CardDescription className="text-indigo-100">
+                    Session ID: {currentSession.id}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
@@ -676,17 +834,46 @@ function App() {
                       <div className="flex justify-between mb-2">
                         <span className="text-sm font-medium">Progress</span>
                         <span className="text-sm font-medium">
-                          {uploadProgress.current} / {uploadProgress.total}
+                          {sessionProgress.current} / {sessionProgress.total}
                         </span>
                       </div>
                       <Progress 
-                        value={(uploadProgress.current / uploadProgress.total) * 100} 
+                        value={(sessionProgress.current / sessionProgress.total) * 100} 
                         className="h-3 bg-indigo-200"
                       />
                     </div>
                     <p className="text-indigo-100 text-sm">
-                      Processing file {uploadProgress.current} of {uploadProgress.total}...
+                      Processing file {sessionProgress.current} of {sessionProgress.total}...
                     </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : currentSession && sessionProgress.status === 'completed' ? (
+              <Card className="border-0 shadow-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5" />
+                    Session Complete
+                  </CardTitle>
+                  <CardDescription className="text-emerald-100">
+                    All files processed successfully
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="text-3xl font-bold">
+                      {sessionProgress.total} files
+                    </div>
+                    <p className="text-emerald-100 text-sm">
+                      Ready for download
+                    </p>
+                    <Button 
+                      className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold"
+                      onClick={() => downloadSessionResults(currentSession.serverId || currentSession.id)}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Results
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -717,7 +904,7 @@ function App() {
             )}
 
             {/* Quick Actions */}
-            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+            <Card className="border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-lg">Quick Actions</CardTitle>
               </CardHeader>
@@ -818,7 +1005,7 @@ function StatCard({ icon, title, value, trend, color }) {
   };
 
   return (
-    <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white/80 backdrop-blur-sm">
+    <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className={`p-3 rounded-lg ${bgColorClasses[color]}`}>
@@ -830,8 +1017,8 @@ function StatCard({ icon, title, value, trend, color }) {
             {trend}
           </Badge>
         </div>
-        <p className="text-sm text-gray-600">{title}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
       </CardContent>
     </Card>
   );
@@ -864,17 +1051,17 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }) {
   const config = statusConfig[status];
 
   return (
-    <div className="group flex items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-300 bg-white">
+    <div className="group flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-600 hover:shadow-md transition-all duration-300 bg-white dark:bg-gray-800">
       <div className="flex items-center gap-4">
         <div className="p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg group-hover:from-indigo-100 group-hover:to-purple-100 transition-colors">
           <FileText className="h-6 w-6 text-indigo-600" />
         </div>
         <div>
-          <p className="font-medium text-gray-900">{fileName}</p>
+          <p className="font-medium text-gray-900 dark:text-white">{fileName}</p>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-xs text-gray-500">{date}</p>
-            <span className="text-xs text-gray-400">•</span>
-            <p className="text-xs text-gray-500">{pages} page{pages > 1 ? 's' : ''}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{date}</p>
+            <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{pages} page{pages > 1 ? 's' : ''}</p>
             {amount && (
               <>
                 <span className="text-xs text-gray-400">•</span>
@@ -892,7 +1079,7 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }) {
           <div className="w-32">
             <div className="flex items-center gap-2">
               <Progress value={progress} className="h-2" />
-              <span className="text-xs text-gray-500 font-medium">{progress}%</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{progress}%</span>
             </div>
           </div>
         )}
@@ -901,7 +1088,7 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }) {
           {config.label}
         </div>
         {status === 'completed' && (
-          <Button size="sm" variant="ghost" className="ml-2 hover:bg-indigo-50 hover:text-indigo-600">
+          <Button size="sm" variant="ghost" className="ml-2 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:text-indigo-600 dark:hover:text-indigo-400">
             <Download className="h-4 w-4" />
           </Button>
         )}
@@ -963,14 +1150,14 @@ function JobItemWithDownload({ job }) {
   }
   
   return (
-    <div className="group flex items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-300 bg-white">
+    <div className="group flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-600 hover:shadow-md transition-all duration-300 bg-white dark:bg-gray-800">
       <div className="flex items-center gap-4">
         <div className="p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg group-hover:from-indigo-100 group-hover:to-purple-100 transition-colors">
           <FileText className="h-6 w-6 text-indigo-600" />
         </div>
         <div>
-          <p className="font-medium text-gray-900">{job.originalFileName}</p>
-          <p className="text-xs text-gray-500 mt-0.5">→ {job.renamedFileName}</p>
+          <p className="font-medium text-gray-900 dark:text-white">{job.originalFileName}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">→ {job.renamedFileName}</p>
           <div className="flex items-center gap-3 mt-1">
             <p className="text-xs text-gray-500">{formatDate(job.date)}</p>
             <span className="text-xs text-gray-400">•</span>
@@ -1007,6 +1194,92 @@ function JobItemWithDownload({ job }) {
             </>
           )}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function SessionItem({ session, progress, onDownload }) {
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
+    
+    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+    if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)} hour${Math.floor(diffMinutes / 60) > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+  };
+
+  const statusConfig = {
+    idle: { 
+      label: 'Idle', 
+      icon: <Clock className="h-4 w-4" />,
+      color: 'text-gray-600 bg-gray-50 border-gray-200'
+    },
+    processing: { 
+      label: 'Processing', 
+      icon: <Loader2 className="h-4 w-4 animate-spin" />,
+      color: 'text-blue-600 bg-blue-50 border-blue-200'
+    },
+    completed: { 
+      label: 'Completed', 
+      icon: <CheckCircle2 className="h-4 w-4" />,
+      color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
+    },
+    failed: { 
+      label: 'Failed', 
+      icon: <XCircle className="h-4 w-4" />,
+      color: 'text-red-600 bg-red-50 border-red-200'
+    },
+  };
+
+  const config = statusConfig[progress.status] || statusConfig.idle;
+
+  return (
+    <div className="group flex items-center justify-between p-4 rounded-xl border-2 border-indigo-200 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-900/20 hover:shadow-md transition-all duration-300">
+      <div className="flex items-center gap-4">
+        <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-lg">
+          <FileText className="h-6 w-6 text-indigo-600" />
+        </div>
+        <div>
+          <p className="font-medium text-gray-900 dark:text-white">
+            Session {session.id}
+          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Started {formatDate(session.createdAt)}</p>
+            <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{progress.total} files</p>
+            {progress.status === 'processing' && (
+              <>
+                <span className="text-xs text-gray-400">•</span>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{progress.current} processed</p>
+              </>
+            )}
+          </div>
+          {progress.status === 'processing' && (
+            <div className="mt-2 w-48">
+              <Progress value={(progress.current / progress.total) * 100} className="h-2" />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${config.color}`}>
+          {config.icon}
+          {config.label}
+        </div>
+        {progress.status === 'completed' && (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={onDownload}
+            className="ml-2 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300"
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Download All
+          </Button>
+        )}
       </div>
     </div>
   );

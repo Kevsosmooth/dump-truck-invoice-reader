@@ -2,6 +2,117 @@
 
 ## Recent Changes (2025-07-09)
 
+### Session-Based Processing and Multi-File Upload
+Implemented session-based document processing with support for multi-file uploads, including ZIP file extraction.
+
+**New Features:**
+- **Session-based processing**
+  - Each upload creates a new session with unique ID
+  - Sessions track multiple files and their processing status
+  - 24-hour file retention policy with automatic cleanup
+  - Sessions stored in PostgreSQL database
+  
+- **Multi-file upload support**
+  - Users can upload multiple PDFs at once
+  - ZIP file support with automatic extraction
+  - Progress tracking for each file in the session
+  - Batch download of processed results as ZIP
+  
+- **File naming convention**
+  - Enforced format: `CompanyName_TicketNumber_Date.pdf`
+  - Automatic parsing of company name, ticket number, and date
+  - Validation ensures proper naming before processing
+
+### New Services Created
+- **pdf-splitter**: Splits multi-page PDFs into individual pages for processing
+- **rate-limiter**: Manages Azure API rate limits (15 req/sec for S0 tier)
+- **polling-manager**: Handles concurrent polling of Azure processing status
+- **zip-generator**: Creates ZIP files for batch downloads
+
+### New API Endpoints
+```javascript
+// Session endpoints
+POST   /api/sessions                 // Create new session
+GET    /api/sessions/:sessionId      // Get session details
+POST   /api/sessions/:sessionId/upload // Upload files to session
+POST   /api/sessions/:sessionId/process // Start processing session
+GET    /api/sessions/:sessionId/download // Download all results as ZIP
+DELETE /api/sessions/:sessionId      // Delete session and files
+
+// File endpoints
+GET    /api/files/:fileId/download   // Download individual file
+DELETE /api/files/:fileId            // Delete individual file
+```
+
+### Database Schema Changes
+```prisma
+model Session {
+  id          String   @id @default(cuid())
+  userId      String?
+  status      String   @default("pending")
+  totalFiles  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  files       File[]
+  user        User?    @relation(fields: [userId], references: [id])
+}
+
+model File {
+  id             String   @id @default(cuid())
+  sessionId      String
+  originalName   String
+  storedName     String
+  companyName    String?
+  ticketNumber   String?
+  date           DateTime?
+  pageCount      Int      @default(1)
+  status         String   @default("pending")
+  processingUrl  String?
+  resultUrl      String?
+  extractedData  Json?
+  error          String?
+  createdAt      DateTime @default(now())
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+```
+
+### Azure S0 Tier Rate Limits
+- **15 requests per second** maximum
+- Rate limiter implements exponential backoff
+- Concurrent processing limited to 10 files
+- Polling intervals adjusted to respect limits
+
+### Required Environment Variables
+```env
+# Azure Document Intelligence (Required)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+
+# Database (Required for full mode)
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/invoice_processor"
+
+# Authentication (Required for full mode)
+SESSION_SECRET="your-session-secret"
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+JWT_SECRET="your-jwt-secret"
+
+# File Storage (Optional - defaults shown)
+UPLOAD_DIR="./uploads"
+MAX_FILE_SIZE="10485760"  # 10MB in bytes
+ALLOWED_EXTENSIONS=".pdf,.zip"
+
+# Rate Limiting (Optional - defaults shown)
+AZURE_RATE_LIMIT="15"     # requests per second
+AZURE_BURST_LIMIT="20"    # burst capacity
+POLLING_INTERVAL="2000"   # milliseconds
+MAX_CONCURRENT="10"       # concurrent operations
+
+# Session Settings (Optional - defaults shown)
+SESSION_TIMEOUT="86400000"  # 24 hours in milliseconds
+CLEANUP_INTERVAL="3600000"  # 1 hour in milliseconds
+```
+
 ### Document Processing Confirmation Modal
 Implemented a confirmation modal to prevent accidental credit loss when processing documents.
 
