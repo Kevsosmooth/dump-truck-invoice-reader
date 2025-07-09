@@ -46,8 +46,34 @@ users/{userId}/sessions/{sessionId}/
 └── exports/           # ZIP files (future)
 ```
 
-**Known Issues:**
-- Date fields from Azure sometimes come as complex objects - need to handle more edge cases
+### Enhanced Date Parsing (Updated)
+- **Problem**: Date fields from Azure were showing as "1970-01-01" due to parsing failures with complex field structures
+- **Solution**: Implemented comprehensive date parsing that handles multiple formats and Azure field structures
+
+**Date Field Extraction Improvements:**
+- Added support for various Azure field structures:
+  - `field.value` - Standard value property
+  - `field.content` - Alternative content property
+  - `field.text` - Text property variant
+  - `field.valueString` - String value property
+  - `field.valueDate` - Date-specific property
+  - `field.valueData` - Data property variant
+  - `field.date` - Direct date property
+  - Array structures (takes first element)
+
+**Date Format Support:**
+- ISO formats: `2025-06-06`, `2025-06-06T00:00:00Z`
+- US format: `06/06/2025`, `6/6/2025`, `06-06-2025`, `06.06.2025`
+- European format: `06/06/2025` (when day > 12)
+- Month name formats: `June 06, 2025`, `June 6, 2025`, `Jun 06, 2025`
+- Reverse month format: `06 June 2025`
+- Slash ISO: `2025/06/06`
+- Intelligent year detection in numeric strings
+
+**Testing and Debugging:**
+- Created `test-date-parsing.js` script to validate all date formats
+- Added comprehensive logging to capture raw Azure field structures
+- Falls back to today's date if parsing fails (instead of epoch)
 - Some field names may vary depending on the custom model
 
 ## Recent Changes (2025-07-10)
