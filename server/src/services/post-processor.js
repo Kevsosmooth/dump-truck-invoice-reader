@@ -40,26 +40,35 @@ export async function postProcessJob(jobId) {
     // Extract company name
     for (const fieldName of companyFields) {
       if (fields[fieldName]) {
-        companyName = extractFieldValue(fields[fieldName]);
-        if (companyName) break;
+        const value = extractFieldValue(fields[fieldName]);
+        console.log(`Checking company field '${fieldName}': ${value}`);
+        if (value) {
+          companyName = value;
+          break;
+        }
       }
     }
 
     // Extract ticket number
     for (const fieldName of ticketFields) {
       if (fields[fieldName]) {
-        ticketNumber = extractFieldValue(fields[fieldName]);
-        if (ticketNumber) break;
+        const value = extractFieldValue(fields[fieldName]);
+        console.log(`Checking ticket field '${fieldName}': ${value}`);
+        if (value) {
+          ticketNumber = value;
+          break;
+        }
       }
     }
 
     // Extract date
     for (const fieldName of dateFields) {
       if (fields[fieldName]) {
-        date = extractFieldValue(fields[fieldName]);
-        if (date) {
+        const value = extractFieldValue(fields[fieldName]);
+        console.log(`Checking date field '${fieldName}': ${value}`);
+        if (value) {
           // Format date as YYYY-MM-DD
-          date = formatDate(date);
+          date = formatDate(value);
           break;
         }
       }
@@ -87,6 +96,15 @@ export async function postProcessJob(jobId) {
     const blobPath = decodedParts.join('/');
     
     console.log(`Downloading from blob path: ${blobPath}`);
+    
+    // Check if blob exists first
+    const { blobExists } = await import('./azure-storage.js');
+    const exists = await blobExists(blobPath);
+    if (!exists) {
+      console.error(`Blob does not exist at path: ${blobPath}`);
+      console.error(`Original URL was: ${job.blobUrl}`);
+      return;
+    }
     
     // Download original file
     const fileBuffer = await downloadBlob(blobPath);

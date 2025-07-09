@@ -380,8 +380,13 @@ router.get('/session/:sessionId/download', authenticateToken, async (req, res) =
     for (const job of session.jobs) {
       if (job.processedFileUrl && job.newFileName) {
         try {
-          // Download processed file from blob storage
-          const blobPath = job.processedFileUrl.split('/').slice(-2).join('/');
+          // Extract the full blob path from the URL
+          const url = new URL(job.processedFileUrl);
+          const pathParts = url.pathname.split('/');
+          // Remove the container name (first part after /) and decode
+          const blobPath = pathParts.slice(2).map(part => decodeURIComponent(part)).join('/');
+          
+          console.log(`Downloading processed file from: ${blobPath}`);
           const fileBuffer = await downloadBlob(blobPath);
           
           archive.append(fileBuffer, { 
@@ -389,6 +394,24 @@ router.get('/session/:sessionId/download', authenticateToken, async (req, res) =
           });
         } catch (error) {
           console.error(`Error adding file ${job.newFileName} to ZIP:`, error);
+        }
+      } else if (job.blobUrl && job.extractedFields) {
+        // Fallback: If no processed file, include the original
+        try {
+          const url = new URL(job.blobUrl);
+          const pathParts = url.pathname.split('/');
+          const blobPath = pathParts.slice(2).map(part => decodeURIComponent(part)).join('/');
+          
+          console.log(`No processed file found, using original from: ${blobPath}`);
+          const fileBuffer = await downloadBlob(blobPath);
+          
+          // Use the original filename or a basic renamed version
+          const fileName = job.newFileName || job.fileName;
+          archive.append(fileBuffer, { 
+            name: `processed/${fileName}` 
+          });
+        } catch (error) {
+          console.error(`Error adding original file ${job.fileName} to ZIP:`, error);
         }
       }
     }
