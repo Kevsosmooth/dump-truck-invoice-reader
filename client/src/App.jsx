@@ -1129,7 +1129,7 @@ function App() {
                                             size="sm"
                                             variant="ghost"
                                             onClick={() => downloadSessionResults(session.id)}
-                                            className="text-xs"
+                                            className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
                                           >
                                             <Download className="h-3 w-3 mr-1" />
                                             Download

@@ -75,9 +75,17 @@ export async function postProcessJob(jobId) {
     const session = job.session;
     const processedBlobPath = `${session.blobPrefix}processed/${newFileName}`;
     
+    // Extract blob path from URL
+    // The blobUrl might be something like: https://storage.blob.core.windows.net/documents/users/1/sessions/uuid/originals/filename.pdf
+    const url = new URL(job.blobUrl);
+    const pathParts = url.pathname.split('/');
+    // Remove the container name (first part after /)
+    const blobPath = pathParts.slice(2).join('/');
+    
+    console.log(`Downloading from blob path: ${blobPath}`);
+    
     // Download original file
-    const originalBlobPath = job.blobUrl.split('/documents/')[1];
-    const fileBuffer = await downloadBlob(originalBlobPath);
+    const fileBuffer = await downloadBlob(blobPath);
     
     // Upload with new name
     const { blobUrl: processedUrl } = await uploadToBlob(fileBuffer, processedBlobPath, {
