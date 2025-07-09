@@ -1,5 +1,5 @@
 import express from 'express';
-import axios from 'axios';
+import { DocumentModelAdministrationClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,6 +12,9 @@ const apiKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
 if (!endpoint || !apiKey) {
   console.error('Azure Document Intelligence credentials not configured');
 }
+
+// Initialize the Document Model Administration client for model management
+const adminClient = endpoint && apiKey ? new DocumentModelAdministrationClient(endpoint, new AzureKeyCredential(apiKey)) : null;
 
 // Store last extracted fields in memory (in production, use database)
 let lastExtractedFields = {};
@@ -38,26 +41,21 @@ router.get('/:modelId/info', async (req, res) => {
   try {
     const { modelId } = req.params;
     
-    if (!endpoint || !apiKey) {
+    if (!adminClient) {
       return res.status(500).json({ error: 'Azure Document Intelligence not configured' });
     }
 
-    // Clean the endpoint URL
-    const baseUrl = endpoint.replace(/\/$/, ''); // Remove trailing slash
+    console.log('Fetching model info for:', modelId);
     
-    // Use the Azure Form Recognizer REST API directly
-    const apiUrl = `${baseUrl}/formrecognizer/documentModels/${modelId}?api-version=2023-07-31`;
+    // Use the SDK's getDocumentModel method from admin client
+    const model = await adminClient.getDocumentModel(modelId);
     
-    console.log('Fetching model info from:', apiUrl);
-    
-    const response = await axios.get(apiUrl, {
-      headers: {
-        'Ocp-Apim-Subscription-Key': apiKey
-      }
-    });
-
-    const model = response.data;
     console.log('Model info retrieved:', model.modelId);
+    console.log('Model details:', {
+      modelId: model.modelId,
+      createdOn: model.createdOn,
+      description: model.description
+    });
     
     // Extract field schema from the model
     const fields = {};
@@ -82,16 +80,20 @@ router.get('/:modelId/info', async (req, res) => {
     res.json({
       modelId: model.modelId,
       description: model.description || 'Custom trained model',
-      createdDateTime: model.createdDateTime,
+      createdDateTime: model.createdOn,
       fields: fields,
-      apiVersion: model.apiVersion || '2023-07-31'
+      // The SDK handles API versioning internally
+      apiVersion: 'Handled by SDK'
     });
 
   } catch (error) {
-    console.error('Error getting model info:', error.response?.data || error.message);
+    console.error('Error getting model info:', error);
     
-    // If it's a 404, the model doesn't exist
-    if (error.response?.status === 404) {
+    // Check for specific error types
+    const errorCode = error.code || error.errorCode;
+    const statusCode = error.statusCode;
+    
+    if (errorCode === 'ModelNotFound' || statusCode === 404) {
       return res.status(404).json({ 
         error: 'Model not found',
         modelId: req.params.modelId 
@@ -101,7 +103,7 @@ router.get('/:modelId/info', async (req, res) => {
     // For other errors, return a generic error
     res.status(500).json({ 
       error: 'Failed to get model information',
-      details: error.response?.data?.error?.message || error.message
+      details: error.message
     });
   }
 });

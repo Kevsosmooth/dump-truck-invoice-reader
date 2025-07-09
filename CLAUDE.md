@@ -2,6 +2,44 @@
 
 ## Recent Changes (2025-07-09)
 
+### Document Processing Confirmation Modal
+Implemented a confirmation modal to prevent accidental credit loss when processing documents.
+
+**Features added:**
+- **Confirmation modal** before processing documents
+  - Shows list of files with page counts
+  - Displays total pages and credits to be used
+  - Prevents processing if insufficient credits
+  - PDF page counting using client-side parsing
+
+- **Azure Model Field Detection**
+  - Direct API integration with Azure Form Recognizer
+  - Endpoint: `GET /formrecognizer/documentModels/{modelId}?api-version=2023-07-31`
+  - Shows exact fields that will be extracted before processing
+  - Created `/api/models/:modelId/info` endpoint
+
+- **UI/UX Improvements**
+  - Only PDF uploads allowed (temporarily removed image support)
+  - Fixed select dropdown transparency issue
+  - Improved modal styling with scrollable sections
+  - Removed all "AI" terminology from the interface
+
+**Technical implementation:**
+```javascript
+// Client-side PDF page counting
+const countPDFPages = async (file) => {
+  // Parses PDF structure to count /Type /Page markers
+}
+
+// Server-side Azure API call
+const apiUrl = `${endpoint}/formrecognizer/documentModels/${modelId}?api-version=2023-07-31`;
+const response = await axios.get(apiUrl, {
+  headers: { 'Ocp-Apim-Subscription-Key': apiKey }
+});
+```
+
+## Recent Changes (2025-07-09)
+
 ### TypeScript to JavaScript Migration
 The entire codebase has been migrated from TypeScript to JavaScript/JSX to simplify development and reduce strict type checking issues.
 

@@ -11,25 +11,26 @@ datasource db {
 }
 
 model User {
-  id              Int              @id @default(autoincrement())
-  email           String           @unique
-  password        String?          // Null for OAuth users
-  googleId        String?          @unique
-  azureId         String?          @unique
-  firstName       String?
-  lastName        String?
-  profilePicture  String?
-  role            UserRole         @default(USER)
-  isActive        Boolean          @default(true)
-  credits         Int              @default(0)
-  lastLoginAt     DateTime?
-  organization    Organization?
-  jobs            Job[]
-  transactions    Transaction[]
-  auditLogs       AuditLog[]
-  sessions        Session[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                Int                  @id @default(autoincrement())
+  email             String               @unique
+  password          String?              // Null for OAuth users
+  googleId          String?              @unique
+  azureId           String?              @unique
+  firstName         String?
+  lastName          String?
+  profilePicture    String?
+  role              UserRole             @default(USER)
+  isActive          Boolean              @default(true)
+  credits           Int                  @default(0)
+  lastLoginAt       DateTime?
+  organization      Organization?
+  jobs              Job[]
+  transactions      Transaction[]
+  auditLogs         AuditLog[]
+  sessions          Session[]
+  processingSessions ProcessingSession[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 }
 
 model Session {
@@ -72,34 +73,86 @@ model CustomModel {
 }
 
 model Job {
-  id              String           @id @default(uuid())
-  userId          Int
-  user            User             @relation(fields: [userId], references: [id])
-  status          JobStatus        @default(QUEUED)
-  fileName        String
-  originalFileUrl String?
-  processedFileUrl String?
-  resultFileUrl   String?
-  fileSize        Int
-  pageCount       Int              @default(0)
-  pagesProcessed  Int              @default(0)
-  creditsUsed     Int              @default(0)
-  modelId         String?
-  error           String?
-  metadata        Json?
-  queueJobId      String?          // Bull job ID
-  createdAt       DateTime         @default(now())
-  completedAt     DateTime?
-  expiresAt       DateTime?
-  fileAccessLogs  FileAccessLog[]
+  id                String             @id @default(uuid())
+  userId            Int
+  user              User               @relation(fields: [userId], references: [id])
+  sessionId         String?
+  session           ProcessingSession? @relation(fields: [sessionId], references: [id])
+  status            JobStatus          @default(QUEUED)
+  fileName          String
+  originalFileUrl   String?
+  processedFileUrl  String?
+  resultFileUrl     String?
+  fileSize          Int
+  pageCount         Int                @default(0)
+  pagesProcessed    Int                @default(0)
+  creditsUsed       Int                @default(0)
+  modelId           String?
+  error             String?
+  metadata          Json?
+  queueJobId        String?            // Bull job ID
+  operationId       String?            // Azure operation ID for polling
+  operationStatus   String?            // polling, succeeded, failed
+  splitPageNumber   Int?               // Page number if split from multi-page PDF
+  parentJobId       String?            // Reference to parent job if this is a split page
+  parentJob         Job?               @relation("ParentChild", fields: [parentJobId], references: [id])
+  childJobs         Job[]              @relation("ParentChild")
+  extractedFields   Json?              // All extracted field data
+  newFileName       String?            // Renamed filename based on extraction
+  pollingStartedAt  DateTime?          // When polling began
+  lastPolledAt      DateTime?          // Last poll attempt
+  blobUrl           String?            // Azure blob storage URL
+  sasUrl            String?            // SAS URL for download
+  sasExpiresAt      DateTime?          // SAS expiration time
+  createdAt         DateTime           @default(now())
+  completedAt       DateTime?
+  expiresAt         DateTime?
+  fileAccessLogs    FileAccessLog[]
+  
+  @@index([sessionId])
+  @@index([operationId])
+  @@index([parentJobId])
 }
 
 enum JobStatus {
   QUEUED
+  UPLOADING
+  PROCESSING
+  POLLING
+  COMPLETED
+  FAILED
+  EXPIRED
+  CANCELLED
+}
+
+model ProcessingSession {
+  id              String           @id @default(uuid())
+  userId          Int
+  user            User             @relation(fields: [userId], references: [id])
+  totalFiles      Int              @default(0)
+  totalPages      Int              @default(0)
+  processedPages  Int              @default(0)
+  status          SessionStatus    @default(UPLOADING)
+  blobPrefix      String           // Azure storage path prefix
+  modelId         String?          // Model to use for all documents
+  jobs            Job[]
+  zipUrl          String?          // URL to download ZIP when complete
+  excelUrl        String?          // URL to download Excel report
+  createdAt       DateTime         @default(now())
+  expiresAt       DateTime         // createdAt + 24 hours
+  
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+enum SessionStatus {
+  UPLOADING
   PROCESSING
   COMPLETED
   FAILED
   EXPIRED
+  CANCELLED
 }
 
 model Transaction {
