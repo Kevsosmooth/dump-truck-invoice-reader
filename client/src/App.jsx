@@ -456,11 +456,11 @@ function App() {
           <div className="space-y-4 py-4">
             {/* Files List */}
             <div className="space-y-2">
-              <h4 className="text-sm font-medium">Documents to Process:</h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Documents to Process:</h4>
               <div className="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
                 {pendingFiles.map((file, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm">
-                    <span className="truncate flex-1 pr-2">{file.name}</span>
+                    <span className="truncate flex-1 pr-2 text-gray-900 dark:text-gray-100">{file.name}</span>
                     <Badge variant="secondary" className="ml-2 shrink-0">
                       {filePageCounts[file.name] || 1} page{filePageCounts[file.name] !== 1 ? 's' : ''}
                     </Badge>
@@ -473,43 +473,43 @@ function App() {
             <div className="grid grid-cols-2 gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Total Documents:</span>
-                <span className="font-medium">{pendingFiles.length}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{pendingFiles.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Pages:</span>
-                <span className="font-medium">{getTotalPages()}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Total Pages:</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{getTotalPages()}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Credits to Use:</span>
-                <span className="font-medium text-amber-600">{getTotalPages()}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Credits to Use:</span>
+                <span className="font-medium text-amber-600 dark:text-amber-400">{getTotalPages()}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Model:</span>
-                <span className="font-medium text-xs">{selectedModel}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Model:</span>
+                <span className="font-medium text-xs text-gray-900 dark:text-gray-100">{selectedModel}</span>
               </div>
             </div>
 
             {/* Fields that will be extracted */}
             <div className="space-y-2">
-              <h4 className="text-sm font-medium">Fields to Extract:</h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Fields to Extract:</h4>
               <div className="max-h-40 overflow-y-auto border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
                 {modelFields === null ? (
-                  <div className="text-xs text-gray-500 text-center py-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">
                     <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
                     Loading model fields...
                   </div>
                 ) : Object.keys(modelFields).length === 0 ? (
-                  <div className="text-xs text-amber-600 text-center py-4">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500" />
+                  <div className="text-xs text-amber-600 dark:text-amber-400 text-center py-4">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500 dark:text-amber-400" />
                     <p className="font-medium mb-1">Model Information Not Available</p>
-                    <p className="text-gray-600">Unable to retrieve field information for this model.</p>
+                    <p className="text-gray-600 dark:text-gray-400">Unable to retrieve field information for this model.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
                     {Object.entries(modelFields)
                       .map(([field, info]) => (
                         <div key={field} className="flex items-start gap-1">
-                          <span className="text-gray-400">•</span>
+                          <span className="text-gray-400 dark:text-gray-500">•</span>
                           <span>{info.description || field.replace(/_/g, ' ')}</span>
                         </div>
                       ))}
@@ -520,9 +520,9 @@ function App() {
 
             {/* Warning if low credits */}
             {user?.credits < getTotalPages() && (
-              <Alert className="bg-red-50 border-red-200">
-                <AlertCircle className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-800 text-sm">
+              <Alert className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+                <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                <AlertDescription className="text-red-800 dark:text-red-200 text-sm">
                   You don't have enough credits. You need {getTotalPages()} credits but only have {user?.credits}.
                 </AlertDescription>
               </Alert>

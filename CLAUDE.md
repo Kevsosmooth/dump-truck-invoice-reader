@@ -2,6 +2,13 @@
 
 ## Recent Changes (2025-07-10)
 
+### Azure Storage Container Name Change
+- Changed default container name from "training-documents" to "documents"
+- This affects the Azure blob storage organization
+- Update your .env file: `AZURE_STORAGE_CONTAINER_NAME=documents`
+
+## Recent Changes (2025-07-10)
+
 ### Critical Fixes Applied
 - **Fixed ES Module Import/Export Issues**
   - Converted all CommonJS `module.exports` to ES module `export` statements

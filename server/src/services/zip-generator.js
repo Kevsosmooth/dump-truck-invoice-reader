@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 
 // Initialize Azure Blob Storage client
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
-const containerName = process.env.AZURE_CONTAINER_NAME || 'invoices';
+const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
 
 /**
  * Main function to generate ZIP file for a session

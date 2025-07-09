@@ -32,7 +32,7 @@ if (storageConnectionString) {
 
 export class AzureTrainingService {
   constructor() {
-    this.containerPrefix = process.env.AZURE_STORAGE_CONTAINER_NAME || 'training-documents';
+    this.containerPrefix = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
   }
 
   /**

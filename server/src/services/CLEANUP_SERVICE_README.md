@@ -81,7 +81,7 @@ CLEANUP_HOURS_THRESHOLD=24
 
 # Azure Storage settings (required for blob cleanup)
 AZURE_STORAGE_CONNECTION_STRING=your-connection-string
-AZURE_STORAGE_CONTAINER=invoices
+AZURE_STORAGE_CONTAINER_NAME=documents
 ```
 
 ## Database Schema

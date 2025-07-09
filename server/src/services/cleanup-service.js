@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 // Azure Storage configuration
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const containerName = process.env.AZURE_STORAGE_CONTAINER || 'invoices';
+const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
 
 // Initialize blob service client
 let blobServiceClient;

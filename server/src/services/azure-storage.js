@@ -4,25 +4,36 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 // Azure Storage configuration
-const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
-const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'invoice-files';
+const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
 
-if (!accountName || !accountKey) {
+// Extract account name and key from connection string if needed
+let accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+let accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+let blobServiceClient = null;
+let sharedKeyCredential = null;
+
+if (connectionString) {
+  // Use connection string
+  blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  
+  // Extract account name and key from connection string for SAS generation
+  const matches = connectionString.match(/AccountName=([^;]+).*AccountKey=([^;]+)/);
+  if (matches) {
+    accountName = matches[1];
+    accountKey = matches[2];
+    sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+  }
+} else if (accountName && accountKey) {
+  // Use account name and key
+  sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+  blobServiceClient = new BlobServiceClient(
+    `https://${accountName}.blob.core.windows.net`,
+    sharedKeyCredential
+  );
+} else {
   console.warn('Azure Storage credentials not configured');
 }
-
-// Create blob service client
-const sharedKeyCredential = accountName && accountKey 
-  ? new StorageSharedKeyCredential(accountName, accountKey)
-  : null;
-
-const blobServiceClient = sharedKeyCredential
-  ? new BlobServiceClient(
-      `https://${accountName}.blob.core.windows.net`,
-      sharedKeyCredential
-    )
-  : null;
 
 // Get container client
 const containerClient = blobServiceClient?.getContainerClient(containerName);
@@ -32,9 +43,8 @@ async function ensureContainerExists() {
   if (!containerClient) return;
   
   try {
-    await containerClient.createIfNotExists({
-      access: 'blob' // Allow public read access to blobs
-    });
+    await containerClient.createIfNotExists();
+    // No public access - will use SAS tokens for secure access
   } catch (error) {
     console.error('Error creating container:', error);
   }
