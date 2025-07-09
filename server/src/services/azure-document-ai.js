@@ -81,7 +81,7 @@ export async function processDocument(filePath, modelId) {
   }
 }
 
-// Function to process a buffer instead of file path (for API uploads)
+// Function to process a buffer instead of file path (for API uploads) - SYNCHRONOUS VERSION
 export async function processDocumentBuffer(buffer, fileName, modelId) {
   try {
     console.log(`Processing buffer for ${fileName} with model: ${modelId || customModelId}`);
@@ -148,6 +148,113 @@ export async function processDocumentBuffer(buffer, fileName, modelId) {
       }
     }
     
+    throw error;
+  }
+}
+
+// NEW: Async function to start document processing without blocking
+export async function startDocumentAnalysis(buffer, fileName, modelId) {
+  try {
+    console.log(`Starting async analysis for ${fileName} with model: ${modelId || customModelId}`);
+    
+    const model = modelId || customModelId;
+    
+    // Start the document analysis
+    const poller = await client.beginAnalyzeDocument(model, buffer);
+    
+    // Get operation details
+    const operationState = poller.getOperationState();
+    const operationLocation = operationState.operationLocation;
+    
+    // Extract operation ID from the location URL
+    // Format: https://{endpoint}/formrecognizer/documentModels/{modelId}/analyzeResults/{resultId}
+    const operationId = operationLocation?.split('/').pop();
+    
+    console.log(`Started operation ${operationId} for ${fileName}`);
+    
+    return {
+      operationId,
+      operationLocation,
+      modelId: model,
+      fileName,
+      poller // We'll store this for later polling
+    };
+  } catch (error) {
+    console.error('Error starting document analysis:', error);
+    
+    // Check if it's a model not found error
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode = error?.code;
+    
+    if (errorMessage.includes('model') || errorCode === 'ModelNotFound') {
+      console.log('Custom model not found, falling back to prebuilt-invoice model');
+      
+      // Retry with prebuilt invoice model
+      try {
+        const poller = await client.beginAnalyzeDocument('prebuilt-invoice', buffer);
+        const operationState = poller.getOperationState();
+        const operationLocation = operationState.operationLocation;
+        const operationId = operationLocation?.split('/').pop();
+        
+        return {
+          operationId,
+          operationLocation,
+          modelId: 'prebuilt-invoice',
+          fileName,
+          fallbackUsed: true,
+          poller
+        };
+      } catch (fallbackError) {
+        throw fallbackError;
+      }
+    }
+    
+    throw error;
+  }
+}
+
+// NEW: Check the status of an ongoing operation
+export async function checkAnalysisStatus(operationId) {
+  try {
+    // Note: The Azure SDK doesn't provide a direct way to recreate a poller from operation ID
+    // In a real implementation, we'd need to store the poller object or use the REST API directly
+    // For now, this is a placeholder that shows the concept
+    
+    // In production, you'd use the REST API directly:
+    // GET {endpoint}/formrecognizer/documentModels/{modelId}/analyzeResults/{resultId}
+    
+    return {
+      status: 'running',
+      percentCompleted: 0,
+      error: null
+    };
+  } catch (error) {
+    console.error('Error checking analysis status:', error);
+    throw error;
+  }
+}
+
+// NEW: Get the results of a completed analysis
+export async function getAnalysisResults(poller) {
+  try {
+    const result = await poller.pollUntilDone();
+    
+    if (!result || !result.documents || result.documents.length === 0) {
+      throw new Error('No documents found in the result');
+    }
+    
+    const document = result.documents[0];
+    const fields = document.fields || {};
+    
+    return {
+      status: 'succeeded',
+      confidence: document.confidence || 0,
+      fields: fields,
+      pages: result.pages || [],
+      tables: result.tables || [],
+    };
+  } catch (error) {
+    console.error('Error getting analysis results:', error);
     throw error;
   }
 }

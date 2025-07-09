@@ -721,7 +721,7 @@ function App() {
                         <SelectItem value="Silvi_Reader_Full_2.0">
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="text-xs">Custom</Badge>
-                            <span>Silvi Reader Full 2.0</span>
+                            <span className="text-gray-900 dark:text-gray-100">Silvi Reader Full 2.0</span>
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -734,9 +734,9 @@ function App() {
 
                 {/* Session Recovery Alert */}
                 {currentSession && sessionProgress.status === 'processing' && (
-                  <Alert className="mt-6 border-amber-200 bg-amber-50">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-amber-700">
+                  <Alert className="mt-6 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                    <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <AlertDescription className="text-amber-700 dark:text-amber-300">
                       <strong>Session in Progress:</strong> You have an active processing session with {sessionProgress.total} files. 
                       {sessionProgress.current} of {sessionProgress.total} files have been processed.
                     </AlertDescription>
@@ -752,9 +752,9 @@ function App() {
                   
                   if (hoursRemaining < 2 && hoursRemaining > 0) {
                     return (
-                      <Alert className="mt-6 border-red-200 bg-red-50">
-                        <AlertCircle className="h-4 w-4 text-red-600" />
-                        <AlertDescription className="text-red-700">
+                      <Alert className="mt-6 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                        <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        <AlertDescription className="text-red-700 dark:text-red-300">
                           <strong>Session Expiring Soon:</strong> This session will expire in {Math.floor(hoursRemaining * 60)} minutes. 
                           Please download your results before they are removed.
                         </AlertDescription>
@@ -764,9 +764,9 @@ function App() {
                   return null;
                 })()}
 
-                <Alert className="mt-6 border-indigo-200 bg-indigo-50">
-                  <Zap className="h-4 w-4 text-indigo-600" />
-                  <AlertDescription className="text-indigo-700">
+                <Alert className="mt-6 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20">
+                  <Zap className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <AlertDescription className="text-indigo-700 dark:text-indigo-300">
                     <strong>Free Tier Active:</strong> Process up to 2 pages per document (4MB max per page). 
                     Multi-page PDFs are automatically split for optimal processing.
                   </AlertDescription>
@@ -778,7 +778,7 @@ function App() {
             <Card className="border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-xl flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-indigo-600" />
+                  <Clock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                   Recent Processing Sessions
                 </CardTitle>
               </CardHeader>
@@ -1239,8 +1239,8 @@ function SessionItem({ session, progress, onDownload }) {
   return (
     <div className="group flex items-center justify-between p-4 rounded-xl border-2 border-indigo-200 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-900/20 hover:shadow-md transition-all duration-300">
       <div className="flex items-center gap-4">
-        <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-lg">
-          <FileText className="h-6 w-6 text-indigo-600" />
+        <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-800 dark:to-purple-800 rounded-lg">
+          <FileText className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
         </div>
         <div>
           <p className="font-medium text-gray-900 dark:text-white">

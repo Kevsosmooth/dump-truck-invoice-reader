@@ -12,6 +12,20 @@
 - Path changed from `exports/session_{sessionId}_{timestamp}.zip` to `users/{userId}/sessions/{sessionId}/exports/session_{sessionId}_{timestamp}.zip`
 - Provides better user isolation and consistent organization with document storage
 
+### Azure Document Processing - Async Operations
+- Azure Form Recognizer uses async operations internally with polling
+- The SDK's `pollUntilDone()` method handles:
+  - Submitting documents to Azure
+  - Getting operation IDs
+  - Polling with exponential backoff
+  - Respecting Azure's Retry-After headers
+- Created `document-processor-simple.js` for concurrent processing without Redis/Bull:
+  - Processes up to 5 documents concurrently
+  - Implements rate limiting (15 req/sec for S0 tier)
+  - Provides progress callbacks
+  - Supports batch processing for large document sets
+- The UI polls our backend every 2 seconds to check overall session progress
+
 ## Recent Changes (2025-07-10)
 
 ### Critical Fixes Applied
