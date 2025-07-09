@@ -19,6 +19,15 @@ const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
  */
 async function generateZipForSession(sessionId) {
   try {
+    // Get session details to get the blobPrefix
+    const session = await prisma.processingSession.findUnique({
+      where: { id: sessionId }
+    });
+
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
     // Get all jobs for the session
     const jobs = await prisma.job.findMany({
       where: { sessionId },
@@ -65,8 +74,8 @@ async function generateZipForSession(sessionId) {
     // Finalize archive
     archive.finalize();
 
-    // Upload ZIP to blob storage
-    const zipFileName = `exports/session_${sessionId}_${Date.now()}.zip`;
+    // Upload ZIP to blob storage using session's blobPrefix
+    const zipFileName = `${session.blobPrefix}exports/session_${sessionId}_${Date.now()}.zip`;
     const zipUrl = await uploadZipToBlob(archive, zipFileName);
 
     // Generate SAS URL

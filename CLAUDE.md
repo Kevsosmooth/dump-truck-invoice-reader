@@ -7,6 +7,11 @@
 - This affects the Azure blob storage organization
 - Update your .env file: `AZURE_STORAGE_CONTAINER_NAME=documents`
 
+### ZIP Export Organization Update
+- ZIP exports now stored under user's session folder for better security
+- Path changed from `exports/session_{sessionId}_{timestamp}.zip` to `users/{userId}/sessions/{sessionId}/exports/session_{sessionId}_{timestamp}.zip`
+- Provides better user isolation and consistent organization with document storage
+
 ## Recent Changes (2025-07-10)
 
 ### Critical Fixes Applied
