@@ -1,5 +1,55 @@
 # CLAUDE.md - Development Notes
 
+## Recent Changes (2025-07-10) - Session 2
+
+### Post-Processing Implementation Complete
+Successfully implemented document post-processing with automatic file renaming based on extracted data.
+
+**What was fixed:**
+1. **Blob URL Decoding Issues**
+   - Fixed double URL encoding problem (spaces becoming %2520 instead of %20)
+   - Properly decode URL components when extracting blob paths
+   - Updated both post-processor and download endpoints
+
+2. **Post-Processing Service**
+   - Created `post-processor.js` to handle file renaming after Azure extraction
+   - Automatically renames files to format: `CompanyName_TicketNumber_Date.pdf`
+   - Creates `processed/` folder in blob storage for renamed files
+   - Integrated with sync document processor
+
+3. **Date Parsing Improvements**
+   - Enhanced date extraction to handle multiple formats:
+     - ISO format (YYYY-MM-DD)
+     - US format (MM/DD/YYYY)
+     - EU format (DD/MM/YYYY)
+     - Month name format (e.g., "June 06, 2025")
+   - Falls back to today's date if parsing fails
+   - Fixed "1970-01-01" default date issue
+
+4. **ZIP Download Fix**
+   - Fixed blob path extraction in download endpoint
+   - Added fallback to include original files if processed files missing
+   - Properly handles URL decoding for blob paths
+   - Successfully includes renamed PDFs and Excel report
+
+5. **Development Tools Added**
+   - Added `/api/dev/session-debug/:sessionId` endpoint for debugging
+   - Added `/api/dev/reprocess-session/:sessionId` to manually trigger post-processing
+   - Created test script `test-post-processing.js` for troubleshooting
+
+**Current Blob Storage Structure:**
+```
+users/{userId}/sessions/{sessionId}/
+├── originals/          # Original uploaded files
+├── pages/             # Split PDF pages (if multi-page)
+├── processed/         # Renamed files (CompanyName_TicketNumber_Date.pdf)
+└── exports/           # ZIP files (future)
+```
+
+**Known Issues:**
+- Date fields from Azure sometimes come as complex objects - need to handle more edge cases
+- Some field names may vary depending on the custom model
+
 ## Recent Changes (2025-07-10)
 
 ### Azure Storage Container Name Change

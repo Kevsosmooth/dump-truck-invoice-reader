@@ -64,11 +64,16 @@ export async function postProcessJob(jobId) {
     // Extract date
     for (const fieldName of dateFields) {
       if (fields[fieldName]) {
+        // Log the raw field structure for debugging
+        console.log(`Raw date field '${fieldName}':`, JSON.stringify(fields[fieldName], null, 2));
+        
         const value = extractFieldValue(fields[fieldName]);
-        console.log(`Checking date field '${fieldName}': ${value}`);
+        console.log(`Extracted value from '${fieldName}': ${value}`);
+        
         if (value) {
           // Format date as YYYY-MM-DD
           date = formatDate(value);
+          console.log(`Formatted date: ${date}`);
           break;
         }
       }
@@ -143,7 +148,40 @@ function extractFieldValue(field) {
     return field;
   }
   if (field && typeof field === 'object') {
-    return field.value || field.content || field.text || '';
+    // Azure Form Recognizer sometimes returns nested structures
+    if (field.value !== undefined) {
+      return field.value;
+    }
+    if (field.content !== undefined) {
+      return field.content;
+    }
+    if (field.text !== undefined) {
+      return field.text;
+    }
+    // Sometimes the value is in a valueString property
+    if (field.valueString !== undefined) {
+      return field.valueString;
+    }
+    // For date fields, Azure might return valueDate
+    if (field.valueDate !== undefined) {
+      return field.valueDate;
+    }
+    // Check for valueData (another Azure variant)
+    if (field.valueData !== undefined) {
+      return field.valueData;
+    }
+    // Check for a 'date' property
+    if (field.date !== undefined) {
+      return field.date;
+    }
+    // Check for nested value object
+    if (field.value && typeof field.value === 'object') {
+      return extractFieldValue(field.value);
+    }
+    // If it's an array, take the first element
+    if (Array.isArray(field) && field.length > 0) {
+      return extractFieldValue(field[0]);
+    }
   }
   return '';
 }
@@ -157,32 +195,37 @@ function formatDate(dateStr) {
       return new Date().toISOString().split('T')[0];
     }
     
+    // Trim and normalize the string
+    dateStr = dateStr.toString().trim();
+    
     // Handle various date formats
     let parsedDate = null;
     
-    // Try ISO format first
+    // Try ISO format first (including timestamps)
     parsedDate = new Date(dateStr);
-    if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900) {
+    if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900 && parsedDate.getFullYear() < 2100) {
       return parsedDate.toISOString().split('T')[0];
     }
     
-    // Try MM/DD/YYYY or MM-DD-YYYY
-    const usFormat = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    // Try MM/DD/YYYY or MM-DD-YYYY or MM.DD.YYYY
+    const usFormat = dateStr.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
     if (usFormat) {
       const month = usFormat[1].padStart(2, '0');
       const day = usFormat[2].padStart(2, '0');
       const year = usFormat[3];
-      return `${year}-${month}-${day}`;
+      if (parseInt(month) <= 12 && parseInt(day) <= 31) {
+        return `${year}-${month}-${day}`;
+      }
     }
     
-    // Try DD/MM/YYYY or DD-MM-YYYY
-    const euFormat = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    // Try DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY (European format)
+    const euFormat = dateStr.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
     if (euFormat) {
       const day = euFormat[1].padStart(2, '0');
       const month = euFormat[2].padStart(2, '0');
       const year = euFormat[3];
-      // Validate month is 1-12
-      if (parseInt(month) <= 12) {
+      // Validate month is 1-12 and day is reasonable
+      if (parseInt(month) <= 12 && parseInt(day) <= 31 && parseInt(month) > parseInt(day)) {
         return `${year}-${month}-${day}`;
       }
     }
@@ -199,6 +242,54 @@ function formatDate(dateStr) {
       if (monthIndex !== -1) {
         const month = (monthIndex + 1).toString().padStart(2, '0');
         return `${year}-${month}-${day}`;
+      }
+    }
+    
+    // Try DD Month YYYY format (e.g., "06 June 2025")
+    const dayMonthFormat = dateStr.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+    if (dayMonthFormat) {
+      const day = dayMonthFormat[1].padStart(2, '0');
+      const monthName = dayMonthFormat[2];
+      const year = dayMonthFormat[3];
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthIndex = monthNames.findIndex(m => m.toLowerCase().startsWith(monthName.toLowerCase()));
+      if (monthIndex !== -1) {
+        const month = (monthIndex + 1).toString().padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    
+    // Try YYYY-MM-DD format
+    const isoFormat = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (isoFormat) {
+      return dateStr.substring(0, 10);
+    }
+    
+    // Try YYYY/MM/DD format
+    const isoSlashFormat = dateStr.match(/(\d{4})\/(\d{2})\/(\d{2})/);
+    if (isoSlashFormat) {
+      return `${isoSlashFormat[1]}-${isoSlashFormat[2]}-${isoSlashFormat[3]}`;
+    }
+    
+    // Try to extract just numbers and guess format
+    const numbers = dateStr.match(/\d+/g);
+    if (numbers && numbers.length >= 3) {
+      // If year is 4 digits, identify it
+      const yearIndex = numbers.findIndex(n => n.length === 4 && parseInt(n) > 1900 && parseInt(n) < 2100);
+      
+      if (yearIndex !== -1) {
+        const year = numbers[yearIndex];
+        const otherNumbers = numbers.filter((n, i) => i !== yearIndex);
+        
+        if (otherNumbers.length >= 2) {
+          const month = otherNumbers[0].padStart(2, '0');
+          const day = otherNumbers[1].padStart(2, '0');
+          
+          if (parseInt(month) <= 12 && parseInt(day) <= 31) {
+            return `${year}-${month}-${day}`;
+          }
+        }
       }
     }
     
