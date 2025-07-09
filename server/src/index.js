@@ -35,12 +35,14 @@ import userRoutes from './routes/user.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import modelTrainingRoutes from './routes/model-training.js';
+import modelsRoutes from './routes/models.js';
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
+app.use('/api/models', modelsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -99,6 +99,14 @@ export async function processDocumentBuffer(buffer, fileName, modelId) {
     const document = result.documents[0];
     const fields = document.fields || {};
     
+    // Log the actual field names for debugging
+    console.log(`Fields extracted by ${model}:`, Object.keys(fields));
+    console.log('Field details:', Object.entries(fields).map(([key, value]) => ({
+      fieldName: key,
+      value: value?.value,
+      confidence: value?.confidence
+    })));
+    
     return {
       status: 'succeeded',
       confidence: document.confidence || 0,

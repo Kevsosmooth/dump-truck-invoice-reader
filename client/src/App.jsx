@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,8 @@ import { FileRenameBuilder } from '@/components/FileRenameBuilder';
 // import { ModelTrainingPage } from '@/pages/ModelTraining';
 // import { OngoingTraining } from '@/components/ModelTraining/OngoingTraining';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { countPDFPages } from '@/lib/pdf-utils';
 import { 
   Upload, 
   FileText, 
@@ -24,7 +26,8 @@ import {
   FileCheck,
   Zap,
   BarChart3,
-  Brain
+  Brain,
+  FileWarning
 } from 'lucide-react';
 
 function App() {
@@ -33,6 +36,35 @@ function App() {
   const [files, setFiles] = useState([]);
   // const [showModelTraining, setShowModelTraining] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Silvi_Reader_Full_2.0');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [filePageCounts, setFilePageCounts] = useState({});
+  const [modelFields, setModelFields] = useState(null);
+
+  // Fetch model information when model changes
+  useEffect(() => {
+    const fetchModelInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:3003/api/models/${selectedModel}/info`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setModelFields(data.fields);
+          console.log('Model fields loaded:', Object.keys(data.fields || {}));
+        } else {
+          console.error('Model not found:', data.error);
+          setModelFields(null);
+        }
+      } catch (error) {
+        console.error('Error fetching model info:', error);
+        setModelFields(null);
+      }
+    };
+    
+    if (selectedModel) {
+      fetchModelInfo();
+    }
+  }, [selectedModel]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -48,24 +80,51 @@ function App() {
     setIsDragging(false);
     
     const droppedFiles = Array.from(e.dataTransfer.files).filter(
-      file => file.type === 'application/pdf' || file.type.startsWith('image/')
+      file => file.type === 'application/pdf'
     );
     
     if (droppedFiles.length > 0) {
-      setFiles(droppedFiles);
-      uploadFiles(droppedFiles);
+      setPendingFiles(droppedFiles);
+      countPages(droppedFiles);
+      setShowConfirmModal(true);
     }
   };
 
   const handleFileSelect = (e) => {
     const selectedFiles = Array.from(e.target.files || []).filter(
-      file => file.type === 'application/pdf' || file.type.startsWith('image/')
+      file => file.type === 'application/pdf'
     );
     
     if (selectedFiles.length > 0) {
-      setFiles(selectedFiles);
-      uploadFiles(selectedFiles);
+      setPendingFiles(selectedFiles);
+      countPages(selectedFiles);
+      setShowConfirmModal(true);
     }
+  };
+
+  const countPages = async (filesToCount) => {
+    const counts = {};
+    for (const file of filesToCount) {
+      const pageCount = await countPDFPages(file);
+      counts[file.name] = pageCount;
+    }
+    setFilePageCounts(counts);
+  };
+
+  const getTotalPages = () => {
+    return Object.values(filePageCounts).reduce((sum, count) => sum + count, 0);
+  };
+
+  const handleConfirmUpload = () => {
+    setFiles(pendingFiles);
+    uploadFiles(pendingFiles);
+    setShowConfirmModal(false);
+  };
+
+  const handleCancelUpload = () => {
+    setPendingFiles([]);
+    setFilePageCounts({});
+    setShowConfirmModal(false);
   };
 
   const [isUploading, setIsUploading] = useState(false);
@@ -273,6 +332,112 @@ function App() {
           }}
         />
       )}
+
+      {/* Confirmation Modal */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileWarning className="h-5 w-5 text-amber-500" />
+              Confirm Document Processing
+            </DialogTitle>
+            <DialogDescription>
+              Please review the documents you're about to process:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Files List */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Documents to Process:</h4>
+              <div className="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-3 bg-gray-50">
+                {pendingFiles.map((file, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-sm">
+                    <span className="truncate flex-1 pr-2">{file.name}</span>
+                    <Badge variant="secondary" className="ml-2 shrink-0">
+                      {filePageCounts[file.name] || 1} page{filePageCounts[file.name] !== 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="grid grid-cols-2 gap-3 p-4 bg-blue-50 rounded-lg">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Documents:</span>
+                <span className="font-medium">{pendingFiles.length}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Pages:</span>
+                <span className="font-medium">{getTotalPages()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Credits to Use:</span>
+                <span className="font-medium text-amber-600">{getTotalPages()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Model:</span>
+                <span className="font-medium text-xs">{selectedModel}</span>
+              </div>
+            </div>
+
+            {/* Fields that will be extracted */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Fields to Extract:</h4>
+              <div className="max-h-40 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+                {modelFields === null ? (
+                  <div className="text-xs text-gray-500 text-center py-2">
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
+                    Loading model fields...
+                  </div>
+                ) : Object.keys(modelFields).length === 0 ? (
+                  <div className="text-xs text-amber-600 text-center py-4">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500" />
+                    <p className="font-medium mb-1">Model Information Not Available</p>
+                    <p className="text-gray-600">Unable to retrieve field information for this model.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    {Object.entries(modelFields)
+                      .map(([field, info]) => (
+                        <div key={field} className="flex items-start gap-1">
+                          <span className="text-gray-400">•</span>
+                          <span>{info.description || field.replace(/_/g, ' ')}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Warning if low credits */}
+            {user?.credits < getTotalPages() && (
+              <Alert className="bg-red-50 border-red-200">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800 text-sm">
+                  You don't have enough credits. You need {getTotalPages()} credits but only have {user?.credits}.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleCancelUpload}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmUpload}
+              disabled={user?.credits < getTotalPages()}
+              className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
+            >
+              <CreditCard className="h-4 w-4 mr-2" />
+              Process {getTotalPages()} Page{getTotalPages() !== 1 ? 's' : ''}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Animated background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
@@ -290,9 +455,9 @@ function App() {
               </div>
               <div>
                 <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                  Invoice AI Pro
+                  Dump Truck Invoice Reader
                 </h1>
-                <p className="text-xs text-gray-500">AI-Powered Document Processing</p>
+                <p className="text-xs text-gray-500">Automated Document Processing</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -357,7 +522,7 @@ function App() {
                       Smart Invoice Processing
                     </CardTitle>
                     <CardDescription className="text-indigo-100 mt-2">
-                      Upload your invoices for instant AI-powered data extraction
+                      Upload your invoices for instant automated data extraction
                     </CardDescription>
                   </div>
                 </div>
@@ -393,7 +558,7 @@ function App() {
                       type="file"
                       id="file-upload"
                       className="hidden"
-                      accept=".pdf,image/*"
+                      accept=".pdf"
                       multiple
                       onChange={handleFileSelect}
                     />
@@ -434,29 +599,17 @@ function App() {
                 <div className="mt-6 space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      AI Model Selection
+                      Model Selection
                     </label>
                     <Select value={selectedModel} onValueChange={setSelectedModel}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select a model" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="bg-white">
                         <SelectItem value="Silvi_Reader_Full_2.0">
                           <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="text-xs">Default</Badge>
+                            <Badge variant="secondary" className="text-xs">Custom</Badge>
                             <span>Silvi Reader Full 2.0</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="prebuilt-invoice">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">Standard</Badge>
-                            <span>Prebuilt Invoice</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="custom" disabled>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">Custom</Badge>
-                            <span>Your Custom Models</span>
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -592,12 +745,12 @@ function App() {
               </CardContent>
             </Card>
 
-            {/* AI Model Info */}
+            {/* Model Info */}
             <Card className="border-0 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-purple-600" />
-                  AI Model Performance
+                  Model Performance
                 </CardTitle>
               </CardHeader>
               <CardContent>
