@@ -37,33 +37,11 @@ export async function processDocument(filePath, modelId) {
     const document = result.documents[0];
     const fields = document.fields || {};
     
-    // Extract relevant fields based on your custom model
-    // You'll need to adjust these field names based on what your Silvi_Reader_Full_2.0 model returns
+    // Extract the data - just return whatever fields the model found
     const extractedData = {
       status: 'succeeded',
       confidence: document.confidence || 0,
-      fields: {
-        // Common invoice fields - adjust based on your model's output
-        InvoiceId: fields.InvoiceId || fields.InvoiceNumber || { value: null },
-        VendorName: fields.VendorName || fields.Vendor || { value: null },
-        CustomerName: fields.CustomerName || fields.Customer || { value: null },
-        InvoiceDate: fields.InvoiceDate || fields.Date || { value: null },
-        DueDate: fields.DueDate || { value: null },
-        InvoiceTotal: fields.InvoiceTotal || fields.Total || fields.Amount || { value: null },
-        SubTotal: fields.SubTotal || { value: null },
-        TaxAmount: fields.TotalTax || fields.Tax || { value: null },
-        Items: fields.Items || { value: [] },
-        
-        // Add any custom fields your Silvi model extracts
-        // For example, if it's for dump truck tickets:
-        TruckNumber: fields.TruckNumber || { value: null },
-        LoadWeight: fields.LoadWeight || { value: null },
-        Material: fields.Material || { value: null },
-        JobSite: fields.JobSite || { value: null },
-        
-        // Store all fields for debugging
-        _allFields: fields
-      },
+      fields: fields, // Return ALL fields as-is from the model
       pages: result.pages || [],
       tables: result.tables || [],
     };
@@ -77,6 +55,158 @@ export async function processDocument(filePath, modelId) {
     
   } catch (error) {
     console.error('Error processing document:', error);
+    throw error;
+  }
+}
+
+// Function to process a document from URL (for blob storage)
+export async function processDocumentFromUrl(documentUrl, fileName, modelId) {
+  try {
+    console.log(`Processing document from URL for ${fileName} with model: ${modelId || customModelId}`);
+    
+    const model = modelId || customModelId;
+    
+    // Use the SDK properly with beginAnalyzeDocumentFromUrl
+    const poller = await client.beginAnalyzeDocumentFromUrl(model, documentUrl, {
+      onProgress: (state) => {
+        console.log(`Analysis progress: ${state.status}`);
+      }
+    });
+    
+    console.log('Analysis started, polling for results...');
+    const result = await poller.pollUntilDone();
+    
+    if (!result || !result.documents || result.documents.length === 0) {
+      throw new Error('No documents found in the result');
+    }
+    
+    const document = result.documents[0];
+    const fields = document.fields || {};
+    
+    // Log the actual field structure for debugging
+    console.log('Raw fields from Azure:', JSON.stringify(fields, null, 2));
+    
+    // Extract the data - just return whatever fields the model found
+    const extractedData = {
+      confidence: document.confidence || 0,
+      modelUsed: model,
+      fields: fields, // Return ALL fields as-is from the model
+      pages: result.pages || [],
+      tables: result.tables || [],
+    };
+    
+    console.log('Document processed successfully from URL:', {
+      confidence: extractedData.confidence,
+      fieldsExtracted: Object.keys(fields).length
+    });
+    
+    return extractedData;
+    
+  } catch (error) {
+    console.error('Error processing document from URL:', error);
+    
+    // If SDK fails, try REST API as fallback
+    if (error.message?.includes('Could not download the file')) {
+      console.log('SDK failed to download file, trying REST API...');
+      return processDocumentFromUrlREST(documentUrl, fileName, modelId);
+    }
+    
+    throw error;
+  }
+}
+
+// Fallback function using REST API
+async function processDocumentFromUrlREST(documentUrl, fileName, modelId) {
+  try {
+    const model = modelId || customModelId;
+    const analyzeUrl = `${endpoint}/formrecognizer/documentModels/${model}:analyze?api-version=2023-07-31`;
+    
+    const response = await fetch(analyzeUrl, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        urlSource: documentUrl
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('REST API error:', errorText);
+      throw new Error(`Failed to analyze document: ${response.status} ${response.statusText}`);
+    }
+    
+    const operationLocation = response.headers.get('operation-location');
+    if (!operationLocation) {
+      throw new Error('No operation location returned');
+    }
+    
+    console.log('REST API: Analysis started, polling for results...');
+    
+    // Poll for results
+    let result = null;
+    let attempts = 0;
+    const maxAttempts = 60; // 60 attempts * 2 seconds = 2 minutes max
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      
+      const pollResponse = await fetch(operationLocation, {
+        headers: {
+          'Ocp-Apim-Subscription-Key': apiKey
+        }
+      });
+      
+      if (!pollResponse.ok) {
+        throw new Error(`Failed to poll results: ${pollResponse.status}`);
+      }
+      
+      const pollData = await pollResponse.json();
+      
+      if (pollData.status === 'succeeded') {
+        result = pollData.analyzeResult;
+        break;
+      } else if (pollData.status === 'failed') {
+        throw new Error(`Analysis failed: ${JSON.stringify(pollData.error)}`);
+      }
+      
+      attempts++;
+    }
+    
+    if (!result) {
+      throw new Error('Analysis timed out');
+    }
+    
+    if (!result.documents || result.documents.length === 0) {
+      throw new Error('No documents found in the result');
+    }
+    
+    const document = result.documents[0];
+    const fields = document.fields || {};
+    
+    // Log the actual field structure for debugging
+    console.log('REST API: Raw fields from Azure:', JSON.stringify(fields, null, 2));
+    
+    // Extract the data - just return whatever fields the model found
+    const extractedData = {
+      confidence: document.confidence || 0,
+      modelUsed: model,
+      fields: fields, // Return ALL fields as-is from the model
+      pages: result.pages || [],
+      tables: result.tables || [],
+    };
+    
+    console.log('REST API: Document processed successfully from URL:', {
+      confidence: extractedData.confidence,
+      fieldsExtracted: Object.keys(fields).length
+    });
+    
+    return extractedData;
+    
+  } catch (error) {
+    console.error('REST API: Error processing document from URL:', error);
     throw error;
   }
 }
@@ -126,26 +256,7 @@ export async function processDocumentBuffer(buffer, fileName, modelId) {
     const errorCode = error?.code;
     
     if (errorMessage.includes('model') || errorCode === 'ModelNotFound') {
-      console.log('Custom model not found, falling back to prebuilt-invoice model');
-      
-      // Retry with prebuilt invoice model
-      try {
-        const poller = await client.beginAnalyzeDocument('prebuilt-invoice', buffer);
-        const result = await poller.pollUntilDone();
-        
-        return {
-          status: 'succeeded',
-          confidence: result.documents?.[0]?.confidence || 0,
-          fields: result.documents?.[0]?.fields || {},
-          pages: result.pages || [],
-          tables: result.tables || [],
-          modelUsed: 'prebuilt-invoice',
-          fileName: fileName,
-          fallbackUsed: true
-        };
-      } catch (fallbackError) {
-        throw fallbackError;
-      }
+      throw new Error(`Model '${model}' not found. Please check your Azure Form Recognizer configuration.`);
     }
     
     throw error;
@@ -187,26 +298,7 @@ export async function startDocumentAnalysis(buffer, fileName, modelId) {
     const errorCode = error?.code;
     
     if (errorMessage.includes('model') || errorCode === 'ModelNotFound') {
-      console.log('Custom model not found, falling back to prebuilt-invoice model');
-      
-      // Retry with prebuilt invoice model
-      try {
-        const poller = await client.beginAnalyzeDocument('prebuilt-invoice', buffer);
-        const operationState = poller.getOperationState();
-        const operationLocation = operationState.operationLocation;
-        const operationId = operationLocation?.split('/').pop();
-        
-        return {
-          operationId,
-          operationLocation,
-          modelId: 'prebuilt-invoice',
-          fileName,
-          fallbackUsed: true,
-          poller
-        };
-      } catch (fallbackError) {
-        throw fallbackError;
-      }
+      throw new Error(`Model '${model}' not found. Please check your Azure Form Recognizer configuration.`);
     }
     
     throw error;
@@ -263,15 +355,8 @@ export async function getAnalysisResults(poller) {
 export async function listModels() {
   try {
     const models = [];
-    // The listDocumentModels method might be named differently or not available in this version
-    // Using type assertion to handle potential method availability
-    const modelsList = client.listDocumentModels?.();
-    if (!modelsList) {
-      console.warn('listDocumentModels method not available in this SDK version');
-      return [];
-    }
     
-    for await (const model of modelsList) {
+    for await (const model of client.listDocumentModels()) {
       models.push({
         modelId: model.modelId,
         createdOn: model.createdOn,

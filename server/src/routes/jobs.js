@@ -5,7 +5,7 @@ import { prisma } from '../index.js';
 import { processDocumentBuffer } from '../services/azure-document-ai.js';
 import { uploadToBlob, generateSasUrl, downloadBlob, deleteBlobsByPrefix } from '../services/azure-storage.js';
 import { splitPDF, countPages, getPDFInfo } from '../services/pdf-splitter.js';
-import { documentProcessingQueue } from '../services/queue.js';
+// import { documentProcessingQueue } from '../services/queue.js'; // Not using Redis/Bull
 import { rateLimiter, waitForToken } from '../services/rate-limiter.js';
 import { authenticateToken } from '../middleware/auth.js';
 import path from 'path';
@@ -39,7 +39,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
     }
 
     const userId = req.user.id;
-    const modelId = req.body.modelId || 'prebuilt-invoice';
+    const modelId = req.body.modelId || process.env.AZURE_CUSTOM_MODEL_ID;
 
     // Check user credits
     const user = await prisma.user.findUnique({
@@ -82,6 +82,8 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
 
+    console.log(`[Backend] Creating session ${sessionId} for user ${userId} with model ${modelId}`);
+
     const session = await prisma.processingSession.create({
       data: {
         id: sessionId,
@@ -93,6 +95,13 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
         modelId,
         expiresAt,
       },
+    });
+
+    console.log(`[Backend] Created session:`, {
+      id: session.id,
+      createdAt: session.createdAt,
+      status: session.status,
+      totalFiles: session.totalFiles
     });
 
     // Upload files to Azure Blob Storage and create jobs
@@ -194,23 +203,12 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
       },
     });
 
-    // Queue jobs for processing with rate limiting
-    for (const job of jobs) {
-      // Add to processing queue
-      await documentProcessingQueue.add('process-document', {
-        jobId: job.id,
-        sessionId,
-        userId,
-        modelId,
-      }, {
-        delay: 1000, // Initial delay to respect rate limits
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
-      });
-    }
+    // Process jobs synchronously (without Redis/Bull)
+    // Start processing in background
+    const { processSessionJobs } = await import('../services/sync-document-processor.js');
+    processSessionJobs(sessionId).catch(error => {
+      console.error('Error processing session jobs:', error);
+    });
 
     // Return session information
     return res.json({
@@ -293,6 +291,52 @@ router.get('/session/:sessionId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching session:', error);
     return res.status(500).json({ error: 'Failed to fetch session' });
+  }
+});
+
+// Get session status (simple endpoint for polling)
+router.get('/session/:sessionId/status', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+
+    const session = await prisma.processingSession.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        totalFiles: true,
+        totalPages: true,
+        processedPages: true,
+        jobs: {
+          where: { status: 'COMPLETED' },
+          select: { id: true }
+        }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const completedFiles = session.jobs.length;
+
+    return res.json({
+      sessionId: session.id,
+      status: session.status,
+      totalFiles: session.totalFiles,
+      processedFiles: completedFiles,
+      progress: session.totalPages > 0 
+        ? Math.round((session.processedPages / session.totalPages) * 100)
+        : 0
+    });
+
+  } catch (error) {
+    console.error('Error fetching session status:', error);
+    return res.status(500).json({ error: 'Failed to fetch session status' });
   }
 });
 
@@ -417,6 +461,75 @@ router.get('/job/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Get user's recent sessions
+router.get('/sessions', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+    const status = req.query.status; // Filter by status
+
+    console.log(`[Backend] Fetching sessions for user ${userId} with status: ${status || 'all'}`);
+
+    // Build where clause
+    const where = { userId };
+    
+    // Add status filter if provided
+    if (status && status !== 'all') {
+      // Map frontend status to backend status values
+      const statusMap = {
+        'completed': 'COMPLETED',
+        'failed': 'FAILED',
+        'processing': ['ACTIVE', 'UPLOADING', 'PROCESSING']
+      };
+      
+      if (status === 'processing') {
+        where.status = { in: statusMap[status] };
+      } else if (statusMap[status]) {
+        where.status = statusMap[status];
+      }
+    }
+
+    const sessions = await prisma.processingSession.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+      include: {
+        jobs: {
+          select: {
+            id: true,
+            status: true,
+            fileName: true,
+          },
+        },
+      },
+    });
+
+    const total = await prisma.processingSession.count({
+      where,
+    });
+
+    console.log(`[Backend] Found ${sessions.length} sessions:`, sessions.map(s => ({
+      id: s.id,
+      createdAt: s.createdAt,
+      status: s.status,
+      totalFiles: s.totalFiles
+    })));
+
+    return res.json({
+      sessions,
+      total,
+      limit,
+      offset,
+    });
+
+  } catch (error) {
+    console.error('Error fetching sessions:', error);
+    return res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
 // Get user's recent jobs
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -465,32 +578,82 @@ router.get('/', authenticateToken, async (req, res) => {
 // Helper function to generate Excel report
 async function generateExcelReport(session) {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Invoice Summary');
+  const worksheet = workbook.addWorksheet('Extracted Data');
 
-  // Add headers
-  worksheet.columns = [
-    { header: 'File Name', key: 'fileName', width: 30 },
-    { header: 'Invoice Number', key: 'invoiceNumber', width: 20 },
-    { header: 'Invoice Date', key: 'invoiceDate', width: 15 },
-    { header: 'Vendor Name', key: 'vendorName', width: 25 },
-    { header: 'Total Amount', key: 'totalAmount', width: 15 },
-    { header: 'Status', key: 'status', width: 12 },
-    { header: 'Confidence', key: 'confidence', width: 12 },
+  // Collect all unique field names from all jobs
+  const allFieldNames = new Set(['fileName', 'status', 'confidence']);
+  
+  for (const job of session.jobs) {
+    if (job.status === 'COMPLETED' && job.extractedFields) {
+      Object.keys(job.extractedFields).forEach(fieldName => {
+        if (!fieldName.startsWith('_')) { // Skip internal fields
+          allFieldNames.add(fieldName);
+        }
+      });
+    }
+  }
+
+  // Create columns dynamically based on extracted fields
+  const columns = [
+    { header: 'File Name', key: 'fileName', width: 30 }
   ];
+
+  // Add a column for each unique field
+  Array.from(allFieldNames).sort().forEach(fieldName => {
+    if (fieldName !== 'fileName' && fieldName !== 'status' && fieldName !== 'confidence') {
+      columns.push({
+        header: fieldName.replace(/([A-Z])/g, ' $1').trim(), // Add spaces before capital letters
+        key: fieldName,
+        width: 20
+      });
+    }
+  });
+
+  // Add status and confidence at the end
+  columns.push(
+    { header: 'Status', key: 'status', width: 12 },
+    { header: 'Confidence', key: 'confidence', width: 12 }
+  );
+
+  worksheet.columns = columns;
 
   // Add data rows
   for (const job of session.jobs) {
     if (job.status === 'COMPLETED' && job.extractedFields) {
       const fields = job.extractedFields;
-      worksheet.addRow({
+      
+      // Debug log to see field structure
+      console.log('Job fields structure:', JSON.stringify(fields, null, 2));
+      
+      const rowData = {
         fileName: job.newFileName || job.fileName,
-        invoiceNumber: fields.InvoiceId?.value || '',
-        invoiceDate: fields.InvoiceDate?.value || '',
-        vendorName: fields.VendorName?.value || '',
-        totalAmount: fields.InvoiceTotal?.value || fields.Total?.value || '',
         status: 'Completed',
         confidence: fields._confidence ? `${(fields._confidence * 100).toFixed(1)}%` : '',
+      };
+
+      // Add all field values
+      Object.entries(fields).forEach(([fieldName, fieldData]) => {
+        if (!fieldName.startsWith('_')) {
+          // Handle different field structures
+          if (typeof fieldData === 'object' && fieldData !== null) {
+            // If it's an object with a value property
+            if ('value' in fieldData) {
+              rowData[fieldName] = fieldData.value;
+            } else if ('content' in fieldData) {
+              // Sometimes Azure returns content instead of value
+              rowData[fieldName] = fieldData.content;
+            } else {
+              // Just stringify the object for debugging
+              rowData[fieldName] = JSON.stringify(fieldData);
+            }
+          } else {
+            // Direct value
+            rowData[fieldName] = fieldData;
+          }
+        }
       });
+
+      worksheet.addRow(rowData);
     }
   }
 

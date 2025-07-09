@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,8 +30,24 @@ import {
   FileWarning
 } from 'lucide-react';
 
+// Helper function to format time ago
+const formatTimeAgo = (date) => {
+  const now = new Date();
+  const past = new Date(date);
+  const diffMs = now - past;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+  return 'just now';
+};
+
 function App() {
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState([]);
   // const [showModelTraining, setShowModelTraining] = useState(false);
@@ -44,23 +60,137 @@ function App() {
   // Session management
   const [currentSession, setCurrentSession] = useState(null);
   const [sessionProgress, setSessionProgress] = useState({ current: 0, total: 0, status: 'idle' });
+  
+  // Pagination and filtering states - moved here before fetchUserSessions
+  const [allUserSessions, setAllUserSessions] = useState([]); // Store all sessions
+  const [userSessions, setUserSessions] = useState([]); // Filtered sessions to display
+  const [sessionFilter, setSessionFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const sessionsPerPage = 5;
+
+  // Fetch all user sessions (only called once or on refresh)
+  const fetchAllUserSessions = async () => {
+    if (!token) return;
+    
+    try {
+      // Fetch all sessions without pagination
+      const url = new URL('http://localhost:3003/api/jobs/sessions');
+      url.searchParams.append('limit', 1000); // Get all sessions
+      url.searchParams.append('offset', 0);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[Frontend] Fetched all sessions from server:', data.sessions);
+        setAllUserSessions(data.sessions);
+        
+        // Apply initial filter and pagination
+        applyFilterAndPagination(data.sessions, sessionFilter, currentPage);
+      }
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+    }
+  };
+
+  // Apply client-side filtering and pagination
+  const applyFilterAndPagination = (sessions, filter, page) => {
+    // Filter sessions based on status
+    let filteredSessions = sessions;
+    
+    if (filter !== 'all') {
+      const statusMap = {
+        'completed': ['COMPLETED'],
+        'failed': ['FAILED'],
+        'processing': ['ACTIVE', 'UPLOADING', 'PROCESSING']
+      };
+      
+      const allowedStatuses = statusMap[filter] || [];
+      filteredSessions = sessions.filter(session => 
+        allowedStatuses.includes(session.status)
+      );
+    }
+
+    // Exclude current session
+    if (currentSession) {
+      filteredSessions = filteredSessions.filter(s => 
+        s.id !== currentSession.id && 
+        s.id !== currentSession.serverId &&
+        s.id !== currentSession.clientId
+      );
+    }
+
+    // Update total count
+    setTotalSessions(filteredSessions.length);
+
+    // Apply pagination
+    const startIndex = (page - 1) * sessionsPerPage;
+    const endIndex = startIndex + sessionsPerPage;
+    const paginatedSessions = filteredSessions.slice(startIndex, endIndex);
+    
+    setUserSessions(paginatedSessions);
+  };
+
+  // Fetch all sessions only when user logs in
+  useEffect(() => {
+    if (user && token) {
+      fetchAllUserSessions();
+    }
+  }, [user, token]);
+
+  // Apply filters and pagination when they change (client-side only)
+  useEffect(() => {
+    if (allUserSessions.length > 0) {
+      applyFilterAndPagination(allUserSessions, sessionFilter, currentPage);
+    }
+  }, [sessionFilter, currentPage, currentSession, allUserSessions]);
 
   // Session recovery from localStorage
   useEffect(() => {
     const storedSession = localStorage.getItem('activeSession');
+    console.log('[Frontend] Checking localStorage for active session:', storedSession);
+    
     if (storedSession) {
-      const session = JSON.parse(storedSession);
-      // Check if session is not expired (24 hours)
-      const sessionDate = new Date(session.createdAt);
-      const now = new Date();
-      const hoursDiff = (now - sessionDate) / (1000 * 60 * 60);
-      
-      if (hoursDiff < 24) {
-        setCurrentSession(session);
-        // Check session status from server
-        checkSessionStatus(session.id);
-      } else {
-        // Session expired, remove from localStorage
+      try {
+        const session = JSON.parse(storedSession);
+        console.log('[Frontend] Parsed session from localStorage:', session);
+        
+        // Validate session has required fields
+        if (!session.createdAt || !session.id) {
+          console.log('[Frontend] Invalid session found (missing fields), removing from localStorage');
+          localStorage.removeItem('activeSession');
+          return;
+        }
+        
+        // Check if session is not expired (24 hours)
+        const sessionDate = new Date(session.createdAt);
+        if (isNaN(sessionDate.getTime())) {
+          console.log('[Frontend] Invalid session date, removing from localStorage');
+          localStorage.removeItem('activeSession');
+          return;
+        }
+        
+        const now = new Date();
+        const hoursDiff = (now - sessionDate) / (1000 * 60 * 60);
+        console.log(`[Frontend] Session age: ${hoursDiff} hours`);
+        
+        if (hoursDiff < 24) {
+          console.log('[Frontend] Setting current session:', session);
+          setCurrentSession(session);
+          // Check session status from server
+          checkSessionStatus(session.serverId || session.id);
+        } else {
+          // Session expired, remove from localStorage
+          console.log('[Frontend] Session expired, removing from localStorage');
+          localStorage.removeItem('activeSession');
+        }
+      } catch (error) {
+        console.error('[Frontend] Error parsing stored session:', error);
         localStorage.removeItem('activeSession');
       }
     }
@@ -69,7 +199,11 @@ function App() {
   // Check session status from server
   const checkSessionStatus = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/status`);
+      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       const data = await response.json();
       
       if (response.ok) {
@@ -80,8 +214,8 @@ function App() {
         });
         
         // If session is complete, update the session but don't remove immediately
-        if (data.status === 'completed' || data.status === 'failed') {
-          if (data.status === 'completed') {
+        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+          if (data.status === 'COMPLETED') {
             // Keep session for download
             const updatedSession = {
               ...currentSession,
@@ -89,6 +223,9 @@ function App() {
             };
             setCurrentSession(updatedSession);
             localStorage.setItem('activeSession', JSON.stringify(updatedSession));
+            
+            // Refresh session list to show completed session
+            fetchAllUserSessions();
           } else {
             // Failed session, remove it
             localStorage.removeItem('activeSession');
@@ -103,9 +240,9 @@ function App() {
 
   // Poll session status when there's an active session
   useEffect(() => {
-    if (currentSession && sessionProgress.status === 'processing') {
+    if (currentSession && (sessionProgress.status === 'processing' || sessionProgress.status === 'PROCESSING' || sessionProgress.status === 'UPLOADING')) {
       const interval = setInterval(() => {
-        checkSessionStatus(currentSession.id);
+        checkSessionStatus(currentSession.serverId || currentSession.id);
       }, 2000); // Check every 2 seconds
       
       return () => clearInterval(interval);
@@ -116,7 +253,11 @@ function App() {
   useEffect(() => {
     const fetchModelInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:3003/api/models/${selectedModel}/info`);
+        const response = await fetch(`http://localhost:3003/api/models/${selectedModel}/info`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         const data = await response.json();
         
         if (response.ok) {
@@ -228,6 +369,7 @@ function App() {
     const sessionId = Date.now().toString();
     const session = {
       id: sessionId,
+      clientId: sessionId, // Keep track of client-side ID
       createdAt: new Date().toISOString(),
       totalFiles: filesToUpload.length,
       processedFiles: 0,
@@ -250,6 +392,9 @@ function App() {
     try {
       const response = await fetch('http://localhost:3003/api/jobs/upload', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
 
@@ -258,9 +403,11 @@ function App() {
       if (result.success) {
         console.log('Session created successfully:', result);
         
-        // Update session with server response
+        // Update session with server response - use server ID as the main ID
         const updatedSession = {
           ...session,
+          id: result.sessionId, // Use server ID as the main ID
+          clientId: session.id, // Keep original client ID for reference
           serverId: result.sessionId,
           status: result.status
         };
@@ -269,6 +416,9 @@ function App() {
         
         // Start polling for status
         checkSessionStatus(result.sessionId);
+        
+        // Refresh session list
+        fetchAllUserSessions();
       } else {
         alert(`❌ Error creating session: ${result.error}\n\n${result.details || ''}`);
         localStorage.removeItem('activeSession');
@@ -294,7 +444,11 @@ function App() {
   // Download session results
   const downloadSessionResults = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/download`);
+      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/download`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -375,7 +529,11 @@ function App() {
 
   const exportToExcel = async () => {
     try {
-      const response = await fetch('http://localhost:3003/api/jobs/export/excel');
+      const response = await fetch('http://localhost:3003/api/jobs/export/excel', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       
       if (response.ok) {
         const blob = await response.blob();
@@ -617,9 +775,9 @@ function App() {
         {/* Ongoing Training Section */}
         {/* <OngoingTraining /> */}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
           {/* Upload Section */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="xl:col-span-3 space-y-6">
             <Card className="overflow-hidden border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white pb-20">
                 <div className="flex items-center justify-between">
@@ -777,39 +935,282 @@ function App() {
             {/* Recent Jobs */}
             <Card className="border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                  Recent Processing Sessions
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {recentJobs.length === 0 && !currentSession ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                      <p className="text-sm text-gray-500 dark:text-gray-400">No documents processed yet</p>
-                      <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">Upload your first invoice to get started</p>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Show current session if exists */}
-                      {currentSession && (
-                        <SessionItem
-                          session={currentSession}
-                          progress={sessionProgress}
-                          onDownload={() => downloadSessionResults(currentSession.serverId || currentSession.id)}
-                        />
-                      )}
-                      {/* Show recent jobs */}
-                      {recentJobs.map((job) => (
-                        <JobItemWithDownload
-                          key={job.id}
-                          job={job}
-                        />
-                      ))}
-                    </>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xl flex items-center gap-2 text-gray-900 dark:text-white">
+                    <Clock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    Recent Processing Sessions
+                  </CardTitle>
+                  {/* Development only - Clear sessions button */}
+                  {process.env.NODE_ENV !== 'production' && userSessions.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={async () => {
+                        if (window.confirm('Are you sure you want to delete ALL your sessions? This cannot be undone!')) {
+                          try {
+                            const response = await fetch('http://localhost:3003/api/dev/clear-sessions', {
+                              method: 'DELETE',
+                              headers: {
+                                'Authorization': `Bearer ${token}`
+                              }
+                            });
+                            
+                            if (response.ok) {
+                              const result = await response.json();
+                              alert(`Successfully deleted ${result.deletedCount} sessions`);
+                              setCurrentPage(1);
+                              setSessionFilter('all');
+                              fetchAllUserSessions();
+                            } else {
+                              alert('Failed to clear sessions');
+                            }
+                          } catch (error) {
+                            console.error('Error clearing sessions:', error);
+                            alert('Error clearing sessions');
+                          }
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Clear All Sessions
+                    </Button>
                   )}
                 </div>
+                {/* Status Filters */}
+                <div className="flex gap-3 mt-4">
+                  <Button
+                    size="sm"
+                    variant={sessionFilter === 'all' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSessionFilter('all');
+                      setCurrentPage(1);
+                    }}
+                    className="text-xs px-4"
+                  >
+                    All
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={sessionFilter === 'completed' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSessionFilter('completed');
+                      setCurrentPage(1);
+                    }}
+                    className="text-xs px-4"
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Completed
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={sessionFilter === 'processing' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSessionFilter('processing');
+                      setCurrentPage(1);
+                    }}
+                    className="text-xs px-4"
+                  >
+                    <Loader2 className="h-3 w-3 mr-1" />
+                    Processing
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={sessionFilter === 'failed' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSessionFilter('failed');
+                      setCurrentPage(1);
+                    }}
+                    className="text-xs px-4"
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Failed
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {userSessions.length === 0 && recentJobs.length === 0 && !currentSession ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No documents processed yet</p>
+                    <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">Upload your first invoice to get started</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Current Active Session Alert */}
+                    {currentSession && (
+                      <Alert className="mb-4 border-blue-200 bg-blue-50 dark:bg-blue-900/20">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        <AlertDescription className="text-blue-700 dark:text-blue-300">
+                          Active session in progress. Processing {sessionProgress.current} of {sessionProgress.total} pages...
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
+                    {/* Sessions Table */}
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-900">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Session ID
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Created
+                              </th>
+                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Files
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Status
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[140px]">
+                                Progress
+                              </th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Actions
+                              </th>
+                            </tr>
+                          </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                              {userSessions
+                                .filter(s => {
+                                  if (!currentSession) return true;
+                                  return s.id !== currentSession.id && 
+                                         s.id !== currentSession.serverId &&
+                                         s.id !== currentSession.clientId;
+                                })
+                                .map((session) => {
+                                  const progress = session.totalPages > 0 
+                                    ? Math.round((session.processedPages / session.totalPages) * 100)
+                                    : 0;
+                                  const statusColor = {
+                                    'COMPLETED': 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
+                                    'FAILED': 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/20',
+                                    'PROCESSING': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                    'ACTIVE': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                    'UPLOADING': 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/20',
+                                    'CANCELLED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20',
+                                    'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
+                                  }[session.status] || 'text-gray-600 bg-gray-100';
+                                  
+                                  return (
+                                    <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                      <td className="px-6 py-4 text-sm font-mono text-gray-900 dark:text-gray-100">
+                                        {session.id.slice(0, 8)}...
+                                      </td>
+                                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                        {formatTimeAgo(session.createdAt)}
+                                      </td>
+                                      <td className="px-6 py-4 text-sm text-center text-gray-900 dark:text-gray-100">
+                                        {session.totalFiles}
+                                      </td>
+                                      <td className="px-6 py-4">
+                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                                          {session.status}
+                                        </span>
+                                      </td>
+                                      <td className="px-6 py-4">
+                                        <div className="flex items-center">
+                                          <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
+                                            <div 
+                                              className="bg-indigo-600 h-2 rounded-full" 
+                                              style={{ width: `${progress}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                                            {progress}%
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="px-6 py-4 text-right">
+                                        {session.status === 'COMPLETED' && (
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => downloadSessionResults(session.id)}
+                                            className="text-xs"
+                                          >
+                                            <Download className="h-3 w-3 mr-1" />
+                                            Download
+                                          </Button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                      </div>
+                    
+                    {/* Pagination */}
+                    {totalSessions > sessionsPerPage && (
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          Showing {((currentPage - 1) * sessionsPerPage) + 1} to {Math.min(currentPage * sessionsPerPage, totalSessions)} of {totalSessions} sessions
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                          >
+                            Previous
+                          </Button>
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: Math.ceil(totalSessions / sessionsPerPage) }, (_, i) => i + 1)
+                              .filter(page => {
+                                const totalPages = Math.ceil(totalSessions / sessionsPerPage);
+                                if (totalPages <= 5) return true;
+                                if (page === 1 || page === totalPages) return true;
+                                if (Math.abs(page - currentPage) <= 1) return true;
+                                return false;
+                              })
+                              .map((page, index, arr) => (
+                                <React.Fragment key={page}>
+                                  {index > 0 && arr[index - 1] < page - 1 && (
+                                    <span className="px-2 text-gray-400">...</span>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant={currentPage === page ? 'default' : 'outline'}
+                                    onClick={() => setCurrentPage(page)}
+                                    className="w-8 h-8 p-0"
+                                  >
+                                    {page}
+                                  </Button>
+                                </React.Fragment>
+                              ))}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalSessions / sessionsPerPage), p + 1))}
+                            disabled={currentPage === Math.ceil(totalSessions / sessionsPerPage)}
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Show recent jobs if any */}
+                    {recentJobs.length > 0 && (
+                      <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Legacy Jobs</h4>
+                        <div className="space-y-2">
+                          {recentJobs.map((job) => (
+                            <JobItemWithDownload
+                              key={job.id}
+                              job={job}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -903,34 +1304,6 @@ function App() {
               </Card>
             )}
 
-            {/* Quick Actions */}
-            <Card className="border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <FileText className="h-4 w-4" />
-                  View All Documents
-                </Button>
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <Download className="h-4 w-4" />
-                  Export Reports
-                </Button>
-                <Button variant="outline" className="w-full justify-start gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Analytics Dashboard
-                </Button>
-                {/* <Button 
-                  variant="outline" 
-                  className="w-full justify-start gap-2 border-purple-200 text-purple-700 hover:bg-purple-50"
-                  onClick={() => setShowModelTraining(true)}
-                >
-                  <Brain className="h-4 w-4" />
-                  Custom Model Training
-                </Button> */}
-              </CardContent>
-            </Card>
 
             {/* Model Info */}
             <Card className="border-0 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50">
@@ -1103,7 +1476,11 @@ function JobItemWithDownload({ job }) {
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      const response = await fetch(`http://localhost:3003${job.downloadUrl}`);
+      const response = await fetch(`http://localhost:3003${job.downloadUrl}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -1201,7 +1578,20 @@ function JobItemWithDownload({ job }) {
 
 function SessionItem({ session, progress, onDownload }) {
   const formatDate = (dateString) => {
+    console.log(`[Frontend] SessionItem formatting date for session ${session.id}:`, dateString);
+    
+    if (!dateString) {
+      console.warn(`[Frontend] No date string provided for session ${session.id}`);
+      return 'Invalid Date';
+    }
+    
     const date = new Date(dateString);
+    
+    if (isNaN(date.getTime())) {
+      console.error(`[Frontend] Invalid date for session ${session.id}:`, dateString);
+      return 'Invalid Date';
+    }
+    
     const now = new Date();
     const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
     
@@ -1245,6 +1635,7 @@ function SessionItem({ session, progress, onDownload }) {
         <div>
           <p className="font-medium text-gray-900 dark:text-white">
             Session {session.id}
+            {console.log(`[Frontend] Rendering session ${session.id} with data:`, session)}
           </p>
           <div className="flex items-center gap-3 mt-1">
             <p className="text-xs text-gray-500 dark:text-gray-400">Started {formatDate(session.createdAt)}</p>

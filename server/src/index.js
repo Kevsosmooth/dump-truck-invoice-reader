@@ -37,6 +37,7 @@ import adminRoutes from './routes/admin.js';
 import modelTrainingRoutes from './routes/model-training.js';
 import modelsRoutes from './routes/models.js';
 import sessionRoutes from './routes/sessions.js';
+import devRoutes from './routes/dev.js';
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
@@ -45,6 +46,11 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);
+
+// Development routes (only in dev mode)
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/dev', devRoutes);
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {

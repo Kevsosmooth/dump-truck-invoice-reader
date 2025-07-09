@@ -108,14 +108,18 @@ export async function generateSasUrl(blobName, expiryHours = 24, permissions = '
     const expiresOn = new Date(startsOn);
     expiresOn.setHours(expiresOn.getHours() + expiryHours);
 
-    // Generate SAS token
-    const sasToken = generateBlobSASQueryParameters({
+    // Generate SAS token with additional parameters for Azure services
+    const sasOptions = {
       containerName,
       blobName,
       permissions: BlobSASPermissions.parse(permissions),
       startsOn,
       expiresOn,
-    }, sharedKeyCredential).toString();
+      protocol: 'https', // Ensure HTTPS only
+      version: '2020-12-06', // Use a specific version
+    };
+
+    const sasToken = generateBlobSASQueryParameters(sasOptions, sharedKeyCredential).toString();
 
     return {
       sasUrl: `${blockBlobClient.url}?${sasToken}`,

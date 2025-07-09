@@ -70,6 +70,7 @@ router.post('/register', async (req, res) => {
     });
 
     return res.json({
+      token,
       user: {
         id: user.id,
         email: user.email,
@@ -119,6 +120,7 @@ router.post('/login', async (req, res) => {
     });
 
     return res.json({
+      token,
       user: {
         id: user.id,
         email: user.email,

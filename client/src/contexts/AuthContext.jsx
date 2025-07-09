@@ -5,6 +5,7 @@ const AuthContext = createContext(undefined);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
   const checkAuth = async () => {
     try {
@@ -27,6 +28,7 @@ export function AuthProvider({ children }) {
         setUser(data.user);
       } else {
         setUser(null);
+        setToken(null);
         localStorage.removeItem('token');
       }
     } catch (error) {
@@ -53,6 +55,7 @@ export function AuthProvider({ children }) {
     const data = await response.json();
     if (data.token) {
       localStorage.setItem('token', data.token);
+      setToken(data.token);
     }
     setUser(data.user);
   };
@@ -67,6 +70,7 @@ export function AuthProvider({ children }) {
       });
     } finally {
       setUser(null);
+      setToken(null);
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
@@ -77,7 +81,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, checkAuth }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, checkAuth, token }}>
       {children}
     </AuthContext.Provider>
   );
