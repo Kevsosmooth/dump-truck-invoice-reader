@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
-const axios = require('axios');
-const config = require('../config/azure');
+import { PrismaClient } from '@prisma/client';
+import axios from 'axios';
+import config from '../config/azure.js';
 
 class PollingManager {
   constructor() {
@@ -332,4 +332,6 @@ class PollingManager {
 }
 
 // Export singleton instance
-module.exports = new PollingManager();
+const pollingManager = new PollingManager();
+export default pollingManager;
+export { PollingManager };

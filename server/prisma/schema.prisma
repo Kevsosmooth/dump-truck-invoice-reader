@@ -38,14 +38,11 @@ model Session {
   userId          Int
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   token           String           @unique
-  status          SessionStatus    @default(ACTIVE)
   expiresAt       DateTime
   createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
   
   @@index([userId])
   @@index([token])
-  @@index([status])
 }
 
 enum UserRole {

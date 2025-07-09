@@ -1,9 +1,12 @@
-const archiver = require('archiver');
-const xlsx = require('xlsx');
-const { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } = require('@azure/storage-blob');
-const prisma = require('../db');
-const path = require('path');
-const { Readable } = require('stream');
+import archiver from 'archiver';
+import xlsx from 'xlsx';
+import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob';
+import { PrismaClient } from '@prisma/client';
+import path from 'path';
+import { Readable } from 'stream';
+
+// Initialize Prisma client
+const prisma = new PrismaClient();
 
 // Initialize Azure Blob Storage client
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
@@ -341,7 +344,7 @@ async function generateSasUrl(blobName) {
   }
 }
 
-module.exports = {
+export {
   generateZipForSession,
   renameFileBasedOnFields,
   generateExcelReport

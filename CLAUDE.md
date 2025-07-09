@@ -1,5 +1,72 @@
 # CLAUDE.md - Development Notes
 
+## Recent Changes (2025-07-10)
+
+### Critical Fixes Applied
+- **Fixed ES Module Import/Export Issues**
+  - Converted all CommonJS `module.exports` to ES module `export` statements
+  - Updated all `require()` statements to `import` statements
+  - Created missing `azure.js` config file
+  - Services now properly use ES module syntax throughout
+
+- **Resolved Session Model Schema Conflict**
+  - Removed `status` field from authentication Session model
+  - Fixed confusion between auth sessions and processing sessions
+  - Authentication sessions now only track: id, userId, token, expiresAt, createdAt
+  - ProcessingSession model handles document processing with status tracking
+
+- **Database Schema Reset**
+  - Used `npx prisma migrate reset --force` to rebuild database
+  - All models now properly synchronized with database
+  - Google OAuth authentication now working correctly
+
+### What to Expect When Uploading PDFs
+
+When you upload 2 PDF files, here's the expected flow:
+
+1. **File Selection**
+   - Drag & drop or click to select multiple PDFs
+   - Confirmation modal shows:
+     - Total pages per PDF
+     - Credits to be used (1 credit per page)
+     - Model being used (Silvi_Reader_Full_2.0)
+     - Fields that will be extracted
+
+2. **Processing Session Created**
+   - A unique session ID is generated
+   - Files are uploaded to Azure Blob Storage
+   - Multi-page PDFs are automatically split into individual pages
+   - Each page becomes a separate job in the system
+
+3. **Rate-Limited Processing**
+   - Documents are processed at max 15 per second (Azure S0 tier limit)
+   - Progress bar shows X/Y documents completed
+   - Estimated time remaining displayed
+   - Session is saved to localStorage for recovery
+
+4. **Real-time Status Updates**
+   - Each document shows status: uploading → processing → completed/failed
+   - Polling manager checks Azure operation status
+   - Failed documents can be retried
+
+5. **Results Available**
+   - Completed session shows download button
+   - ZIP file contains:
+     - All PDFs renamed as: CompanyName_TicketNumber_Date.pdf
+     - Excel report with all extracted data
+   - Individual files can also be downloaded
+   - Results available for 24 hours
+
+6. **Automatic Cleanup**
+   - After 24 hours, files are automatically deleted
+   - Session marked as expired
+   - Cleanup service runs periodically
+
+### Current Limitations
+- Azure Storage credentials need to be configured in .env
+- Maximum 500MB per file (Azure limit)
+- Maximum 2000 pages per document (Azure limit)
+
 ## Recent Changes (2025-07-09)
 
 ### Session-Based Processing and Multi-File Upload

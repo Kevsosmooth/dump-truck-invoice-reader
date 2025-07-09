@@ -231,20 +231,17 @@ const azureRateLimiter = new RateLimiter({
 });
 
 // Export functions for easy use
-module.exports = {
-  // Main rate limiter instance
-  rateLimiter: azureRateLimiter,
-  
-  // Convenience functions
-  canMakeRequest: () => azureRateLimiter.canMakeRequest(),
-  waitForToken: () => azureRateLimiter.waitForToken(),
-  getQueueLength: () => azureRateLimiter.getQueueLength(),
-  getStats: () => azureRateLimiter.getStats(),
-  reportFailure: () => azureRateLimiter.reportFailure(),
-  waitWithBackoff: () => azureRateLimiter.waitWithBackoff(),
-  resetBackoff: () => azureRateLimiter.resetBackoff(),
-  reset: () => azureRateLimiter.reset(),
-  
-  // Export class for custom instances
-  RateLimiter
-};
+export const rateLimiter = azureRateLimiter;
+
+// Convenience functions
+export const canMakeRequest = () => azureRateLimiter.canMakeRequest();
+export const waitForToken = () => azureRateLimiter.waitForToken();
+export const getQueueLength = () => azureRateLimiter.getQueueLength();
+export const getStats = () => azureRateLimiter.getStats();
+export const reportFailure = () => azureRateLimiter.reportFailure();
+export const waitWithBackoff = () => azureRateLimiter.waitWithBackoff();
+export const resetBackoff = () => azureRateLimiter.resetBackoff();
+export const reset = () => azureRateLimiter.reset();
+
+// Export class for custom instances
+export { RateLimiter };
