@@ -75,62 +75,108 @@ For production use with persistent storage, user management, and all features:
 
 #### Prerequisites
 - Node.js v18+
-- Docker and Docker Compose
+- PostgreSQL 14+ (install locally or via Docker)
 - Azure account with Document AI resource
-- PostgreSQL (via Docker)
-- Redis (via Docker)
-
-#### Complete Environment Variables
-Create a `.env` file in the `/server` directory:
-```env
-# Database
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/invoice_processor"
-
-# Azure Document Intelligence
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
-AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
-AZURE_CUSTOM_MODEL_ID="your-custom-model-id"
-
-# Azure Storage
-AZURE_STORAGE_CONNECTION_STRING="your-connection-string"
-AZURE_STORAGE_CONTAINER_NAME="invoice-files"
-
-# Authentication
-SESSION_SECRET="your-session-secret"
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-
-# Email (optional)
-SENDGRID_API_KEY="SG...."
-FROM_EMAIL="noreply@yourdomain.com"
-
-# Payments (optional)
-STRIPE_SECRET_KEY="sk_test_..."
-STRIPE_WEBHOOK_SECRET="whsec_..."
-```
+- Azure Storage account
 
 #### Installation Steps
-1. Start Docker services:
-```bash
-docker-compose up -d
-```
 
-2. Run database migrations:
-```bash
-cd server
-npx prisma migrate dev
-```
+1. **Install PostgreSQL**
+   - Windows: Download installer from https://www.postgresql.org/download/windows/
+   - Mac: `brew install postgresql`
+   - Or use Docker: `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=password123 postgres:14`
 
-3. Start development servers:
-```bash
-# Terminal 1 - Start backend with database
-cd server
-npm run dev
+2. **Create Database**
+   - Using pgAdmin or command line:
+   ```sql
+   CREATE DATABASE invoice_processor;
+   ```
 
-# Terminal 2 - Start frontend
-cd client
-npm run dev
-```
+3. **Configure Environment**
+   Create a `.env` file in the `/server` directory:
+   ```env
+   # Database (update with your PostgreSQL credentials)
+   DATABASE_URL="postgresql://postgres:password123@localhost:5432/invoice_processor"
+
+   # Server
+   PORT=3003
+   NODE_ENV=development
+   CLIENT_URL=http://localhost:5173
+
+   # Azure Document Intelligence (REQUIRED)
+   AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+   AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+   AZURE_CUSTOM_MODEL_ID="Silvi_Reader_Full_2.0"
+
+   # Azure Storage (REQUIRED - choose one method)
+   # Method 1: Connection String (find in Azure Portal > Storage Account > Access keys)
+   AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=youraccount;AccountKey=yourkey;EndpointSuffix=core.windows.net"
+   
+   # Method 2: Account Name + Key
+   # AZURE_STORAGE_ACCOUNT_NAME="youraccount"
+   # AZURE_STORAGE_ACCOUNT_KEY="yourkey"
+   
+   # Container name (will be created automatically)
+   AZURE_STORAGE_CONTAINER_NAME="documents"
+
+   # Authentication secrets (use random strings for local dev)
+   JWT_SECRET="your-jwt-secret-here"
+   SESSION_SECRET="your-session-secret-here"
+
+   # Google OAuth (optional - for production)
+   GOOGLE_CLIENT_ID="your-google-client-id"
+   GOOGLE_CLIENT_SECRET="your-google-client-secret"
+   GOOGLE_CALLBACK_URL="http://localhost:3003/auth/google/callback"
+   ```
+
+4. **Install Dependencies**
+   ```bash
+   # Install client dependencies
+   cd client
+   npm install
+
+   # Install server dependencies
+   cd ../server
+   npm install
+   ```
+
+5. **Setup Database**
+   ```bash
+   cd server
+   # Generate Prisma client
+   npx prisma generate
+   
+   # Run migrations to create tables
+   npx prisma migrate deploy
+   ```
+
+6. **Create Test Accounts (Optional)**
+   ```bash
+   # Creates test@example.com with password123 and gives mrkevinsuriel@gmail.com infinite credits
+   node scripts/setup-test-account.js
+   ```
+
+7. **Start Development Servers**
+   ```bash
+   # Terminal 1 - Start backend (port 3003)
+   cd server
+   npm run dev
+
+   # Terminal 2 - Start frontend (port 5173)
+   cd client
+   npm run dev
+   ```
+
+8. **Access the Application**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:3003
+
+#### Finding Azure Storage Connection String
+1. Log into Azure Portal (portal.azure.com)
+2. Navigate to your Storage Account
+3. Go to "Security + networking" → "Access keys"
+4. Click "Show keys"
+5. Copy the "Connection string" value from key1
 
 ## Simple Mode vs Full Mode
 

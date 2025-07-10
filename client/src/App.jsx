@@ -11,6 +11,7 @@ import { FileRenameBuilder } from '@/components/FileRenameBuilder';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { countPDFPages } from '@/lib/pdf-utils';
+import { API_URL, fetchWithAuth } from '@/config/api';
 import { 
   Upload, 
   FileText, 
@@ -101,15 +102,11 @@ function App() {
     
     try {
       // Fetch all sessions without pagination
-      const url = new URL('http://localhost:3003/api/jobs/sessions');
+      const url = new URL(`${API_URL}/api/jobs/sessions`);
       url.searchParams.append('limit', 1000); // Get all sessions
       url.searchParams.append('offset', 0);
 
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(url.toString());
       
       if (response.ok) {
         const data = await response.json();
@@ -126,8 +123,30 @@ function App() {
 
   // Apply client-side filtering and pagination
   const applyFilterAndPagination = (sessions, filter, page) => {
+    // Include currentSession if it exists and is not already in the list
+    let allSessionsWithCurrent = [...sessions];
+    if (currentSession && sessionProgress.status !== 'idle') {
+      // Check if currentSession is already in the list
+      const existingIndex = sessions.findIndex(s => 
+        s.id === currentSession.id || 
+        s.id === currentSession.serverId ||
+        s.id === currentSession.clientId
+      );
+      
+      // If not found, add it to the beginning
+      if (existingIndex === -1) {
+        const currentSessionData = {
+          ...currentSession,
+          status: sessionProgress.status === 'processing' ? 'PROCESSING' : sessionProgress.status,
+          processedPages: sessionProgress.current,
+          totalPages: sessionProgress.total,
+        };
+        allSessionsWithCurrent = [currentSessionData, ...sessions];
+      }
+    }
+    
     // Filter sessions based on status
-    let filteredSessions = sessions;
+    let filteredSessions = allSessionsWithCurrent;
     
     if (filter !== 'all') {
       const statusMap = {
@@ -137,13 +156,12 @@ function App() {
       };
       
       const allowedStatuses = statusMap[filter] || [];
-      filteredSessions = sessions.filter(session => 
+      filteredSessions = allSessionsWithCurrent.filter(session => 
         allowedStatuses.includes(session.status)
       );
     }
 
     // Don't exclude current session - we want to show it in the table
-
     // Update total count
     setTotalSessions(filteredSessions.length);
 
@@ -164,10 +182,10 @@ function App() {
 
   // Apply filters and pagination when they change (client-side only)
   useEffect(() => {
-    if (allUserSessions.length > 0) {
+    if (allUserSessions.length > 0 || currentSession) {
       applyFilterAndPagination(allUserSessions, sessionFilter, currentPage);
     }
-  }, [sessionFilter, currentPage, currentSession, allUserSessions]);
+  }, [sessionFilter, currentPage, currentSession, sessionProgress, allUserSessions]);
 
   // Session recovery from localStorage
   useEffect(() => {
@@ -228,11 +246,7 @@ function App() {
   // Check session status from server
   const checkSessionStatus = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/status`);
       const data = await response.json();
       
       if (response.ok) {
@@ -254,6 +268,16 @@ function App() {
           } else {
             console.log(`[Credits] Unexpected increase or same value: ${currentCredits} -> ${data.userCredits}`);
           }
+        }
+        
+        // Update currentSession with server data to keep it in sync
+        if (currentSession && (data.status === 'PROCESSING' || data.status === 'UPLOADING')) {
+          setCurrentSession(prev => ({
+            ...prev,
+            status: data.status,
+            processedPages: data.processedPages || data.processedFiles,
+            totalPages: data.totalPages || data.totalFiles,
+          }));
         }
         
         // If session is complete, update the session but don't remove immediately
@@ -293,11 +317,7 @@ function App() {
   useEffect(() => {
     const fetchModelInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:3003/api/models/${selectedModel}/info`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const response = await fetchWithAuth(`${API_URL}/api/models/${selectedModel}/info`);
         const data = await response.json();
         
         if (response.ok) {
@@ -423,13 +443,21 @@ function App() {
     
     // Create a new session
     const sessionId = Date.now().toString();
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
     const session = {
       id: sessionId,
       clientId: sessionId, // Keep track of client-side ID
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      status: 'UPLOADING',
       totalFiles: filesToUpload.length,
+      totalPages: totalPagesCount,
+      processedPages: 0,
       processedFiles: 0,
-      files: filesToUpload.map(f => ({ name: f.name, status: 'pending' }))
+      files: filesToUpload.map(f => ({ name: f.name, status: 'pending' })),
+      jobs: []
     };
     
     setCurrentSession(session);
@@ -446,11 +474,8 @@ function App() {
     });
 
     try {
-      const response = await fetch('http://localhost:3003/api/jobs/upload', {
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/upload`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: formData,
       });
 
@@ -501,11 +526,7 @@ function App() {
   // Download session results
   const downloadSessionResults = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/download`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/download`);
       
       if (response.status === 410) {
         // Session expired
@@ -600,11 +621,7 @@ function App() {
 
   const exportToExcel = async () => {
     try {
-      const response = await fetch('http://localhost:3003/api/jobs/export/excel', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/export/excel`);
       
       if (response.ok) {
         const blob = await response.blob();
@@ -1006,11 +1023,8 @@ function App() {
                       onClick={async () => {
                         if (window.confirm('Are you sure you want to delete ALL your sessions? This cannot be undone!')) {
                           try {
-                            const response = await fetch('http://localhost:3003/api/dev/clear-sessions', {
-                              method: 'DELETE',
-                              headers: {
-                                'Authorization': `Bearer ${token}`
-                              }
+                            const response = await fetchWithAuth(`${API_URL}/api/dev/clear-sessions`, {
+                              method: 'DELETE'
                             });
                             
                             if (response.ok) {
@@ -1633,15 +1647,12 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }) {
 
 function JobItemWithDownload({ job }) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const { token } = useAuth();
   
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      const response = await fetch(`http://localhost:3003${job.downloadUrl}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}${job.downloadUrl}`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);

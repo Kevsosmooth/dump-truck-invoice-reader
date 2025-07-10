@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
+import { API_ENDPOINTS, fetchWithAuth } from '@/config/api';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -28,11 +29,9 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/register';
-      const response = await fetch(`http://localhost:3003${endpoint}`, {
+      const endpoint = isLogin ? API_ENDPOINTS.AUTH.LOGIN : API_ENDPOINTS.AUTH.REGISTER;
+      const response = await fetchWithAuth(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(formData)
       });
 
@@ -59,7 +58,7 @@ export function LoginPage() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:3003/auth/google';
+    window.location.href = API_ENDPOINTS.AUTH.GOOGLE;
   };
 
   return (
