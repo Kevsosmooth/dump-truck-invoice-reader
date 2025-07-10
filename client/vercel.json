@@ -10,8 +10,24 @@
       "destination": "https://dump-truck-invoice-reader.onrender.com/api/:path*"
     },
     {
-      "source": "/auth/:path*",
-      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/:path*"
+      "source": "/auth/google",
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/google"
+    },
+    {
+      "source": "/auth/google/callback",
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/google/callback"
+    },
+    {
+      "source": "/auth/logout",
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/logout"
+    },
+    {
+      "source": "/auth/me",
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/me"
+    },
+    {
+      "source": "/auth/status",
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/status"
     }
   ],
   "headers": [
