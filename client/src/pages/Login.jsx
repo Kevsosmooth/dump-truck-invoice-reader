@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +10,8 @@ import { Separator } from '@/components/ui/separator';
 import { Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 
 export function LoginPage() {
+  const navigate = useNavigate();
+  const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -38,8 +42,14 @@ export function LoginPage() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      // Redirect to dashboard
-      window.location.href = '/';
+      // Store token and update auth context
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        await login(data.token);
+      }
+
+      // Navigate to dashboard
+      navigate('/');
     } catch (err) {
       setError(err.message);
     } finally {
