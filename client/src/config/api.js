@@ -1,8 +1,10 @@
 // API Configuration
 // This file centralizes all API endpoints and configuration
 
-// Get API URL from environment variable or use localhost for development
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
+// Get API URL from environment variable or use relative URLs (for Vercel rewrites)
+// In production with Vercel rewrites, we can use relative URLs
+export const API_URL = import.meta.env.VITE_API_URL || 
+  (import.meta.env.PROD ? '' : 'http://localhost:3003');
 
 // API endpoints
 export const API_ENDPOINTS = {
