@@ -181,10 +181,12 @@ router.get('/google/callback',
       const token = await createSession(user.id);
 
       // Redirect to frontend with token
-      return res.redirect(`http://localhost:5173/auth/callback?token=${token}`);
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      return res.redirect(`${clientUrl}/auth/callback?token=${token}`);
     } catch (error) {
       console.error('Google OAuth callback error:', error);
-      return res.redirect('http://localhost:5173/auth/error');
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      return res.redirect(`${clientUrl}/auth/error`);
     }
   }
 );
