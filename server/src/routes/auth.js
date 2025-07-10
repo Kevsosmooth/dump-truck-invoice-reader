@@ -55,7 +55,7 @@ router.post('/register', async (req, res) => {
         password: hashedPassword,
         firstName,
         lastName,
-        credits: 100 // Initial free credits
+        credits: 0 // New users start with 0 credits
       }
     });
 

@@ -73,15 +73,19 @@ export async function processDocumentSync(jobData) {
       },
     });
 
-    // Deduct credits from user
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        credits: {
-          decrement: 1,
+    // Deduct credits from user (except for admin with ID 1)
+    if (userId !== 1) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          credits: {
+            decrement: 1,
+          },
         },
-      },
-    });
+      });
+    } else {
+      console.log(`[CREDITS] Admin user (ID: 1) - credits not deducted`);
+    }
 
     // Check if all child jobs in session are complete
     const remainingJobs = await prisma.job.count({
