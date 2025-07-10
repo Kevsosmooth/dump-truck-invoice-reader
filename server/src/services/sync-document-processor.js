@@ -3,6 +3,7 @@ import { processDocumentFromUrl } from './azure-document-ai.js';
 import { generateSasUrl } from './azure-storage.js';
 import { waitForToken } from './rate-limiter.js';
 import { postProcessJob, postProcessSession } from './post-processor.js';
+import { maskExtractedFields } from '../utils/demo-mask.js';
 
 const prisma = new PrismaClient();
 
@@ -16,11 +17,17 @@ export async function processDocumentSync(jobData) {
     // Get job details
     const job = await prisma.job.findUnique({
       where: { id: jobId },
+      include: {
+        session: true
+      }
     });
 
     if (!job) {
       throw new Error(`Job ${jobId} not found`);
     }
+    
+    // Check if demo mode is enabled
+    const isDemoMode = job.session?.metadata?.demoMode || false;
 
     // Update job status to PROCESSING
     await prisma.job.update({
@@ -41,6 +48,9 @@ export async function processDocumentSync(jobData) {
     const { sasUrl } = await generateSasUrl(blobPath, 1);
     
     console.log(`[AZURE] Starting document analysis with model: ${modelId}`);
+    if (isDemoMode) {
+      console.log(`[DEMO MODE] Sensitive fields will be masked`);
+    }
 
     // Wait for rate limit token
     await waitForToken();
@@ -48,13 +58,18 @@ export async function processDocumentSync(jobData) {
     // Process with Azure using the URL
     const result = await processDocumentFromUrl(sasUrl, job.fileName, modelId);
 
+    // Apply demo mode masking if enabled
+    const fieldsToSave = isDemoMode 
+      ? maskExtractedFields(result.fields, true)
+      : result.fields;
+
     // Update job with results
     await prisma.job.update({
       where: { id: jobId },
       data: {
         status: 'COMPLETED',
         extractedFields: {
-          ...result.fields,
+          ...fieldsToSave,
           _confidence: result.confidence // Store confidence in the fields
         },
         completedAt: new Date(),

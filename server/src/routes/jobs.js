@@ -40,6 +40,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
 
     const userId = req.user.id;
     const modelId = req.body.modelId || process.env.AZURE_CUSTOM_MODEL_ID;
+    const demoMode = req.body.demoMode === 'true';
 
     // Check user credits
     const user = await prisma.user.findUnique({
@@ -86,6 +87,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
     console.log(`[UPLOAD] Creating session ${sessionId}`);
     console.log(`[UPLOAD] User: ${userId}`);
     console.log(`[UPLOAD] Model: ${modelId}`);
+    console.log(`[UPLOAD] Demo Mode: ${demoMode}`);
     console.log(`[UPLOAD] Total PDF files uploaded: ${req.files.length}`);
     console.log(`[UPLOAD] Total pages across all PDFs: ${totalPages}`);
     console.log('[UPLOAD] PDF breakdown:');
@@ -104,6 +106,9 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
         blobPrefix,
         modelId,
         expiresAt,
+        metadata: {
+          demoMode: demoMode
+        }
       },
     });
 

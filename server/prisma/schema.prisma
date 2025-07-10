@@ -138,6 +138,7 @@ model ProcessingSession {
   jobs            Job[]
   zipUrl          String?          // URL to download ZIP when complete
   excelUrl        String?          // URL to download Excel report
+  metadata        Json?            // Additional session metadata (e.g., demoMode)
   createdAt       DateTime         @default(now())
   expiresAt       DateTime         // createdAt + 24 hours
   
