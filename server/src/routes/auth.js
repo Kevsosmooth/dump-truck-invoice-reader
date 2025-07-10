@@ -26,7 +26,7 @@ const createSession = async (userId) => {
       timestamp: Date.now(),
       random: Math.random().toString(36).substring(7)
     },
-    process.env.SESSION_SECRET,
+    process.env.JWT_SECRET || process.env.SESSION_SECRET,
     { expiresIn: '7d' }
   );
 

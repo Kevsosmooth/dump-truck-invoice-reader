@@ -8,10 +8,18 @@ export const authenticateToken = async (req, res, next) => {
     const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
 
     if (!token) {
+      console.log('[AUTH] No token provided');
       return res.status(401).json({ error: 'Access denied. No token provided.' });
     }
 
-    const decoded = jwt.verify(token, process.env.SESSION_SECRET);
+    // Verify JWT token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || process.env.SESSION_SECRET);
+    } catch (jwtError) {
+      console.error('[AUTH] JWT verification failed:', jwtError.message);
+      return res.status(403).json({ error: 'Invalid token format.' });
+    }
     
     // Check if session exists in database
     const session = await prisma.session.findUnique({
@@ -19,19 +27,27 @@ export const authenticateToken = async (req, res, next) => {
       include: { user: true }
     });
 
-    if (!session || session.expiresAt < new Date()) {
-      return res.status(401).json({ error: 'Invalid or expired session.' });
+    if (!session) {
+      console.log('[AUTH] Session not found in database');
+      return res.status(401).json({ error: 'Session not found.' });
+    }
+
+    if (session.expiresAt < new Date()) {
+      console.log('[AUTH] Session expired:', session.expiresAt);
+      return res.status(401).json({ error: 'Session expired.' });
     }
 
     req.user = {
       id: session.user.id,
       email: session.user.email,
-      role: session.user.role
+      role: session.user.role,
+      credits: session.user.credits
     };
 
     next();
   } catch (error) {
-    return res.status(403).json({ error: 'Invalid token.' });
+    console.error('[AUTH] Unexpected error:', error);
+    return res.status(500).json({ error: 'Authentication error.' });
   }
 };
 

@@ -947,16 +947,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Session Recovery Alert */}
-                {currentSession && sessionProgress.status === 'processing' && (
-                  <Alert className="mt-6 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
-                    <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    <AlertDescription className="text-amber-700 dark:text-amber-300">
-                      <strong>Session in Progress:</strong> You have an active processing session with {sessionProgress.total} files. 
-                      {sessionProgress.current} of {sessionProgress.total} files have been processed.
-                    </AlertDescription>
-                  </Alert>
-                )}
 
                 {/* Session Expiry Warning */}
                 {currentSession && (() => {
