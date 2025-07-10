@@ -70,7 +70,7 @@ passport.use(
                 firstName: profile.name?.givenName,
                 lastName: profile.name?.familyName,
                 profilePicture: profile.photos?.[0]?.value,
-                credits: 100 // Initial free credits
+                credits: 0 // New users start with 0 credits
               }
             });
           }
