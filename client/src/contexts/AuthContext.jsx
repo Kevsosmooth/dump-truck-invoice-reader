@@ -5,6 +5,7 @@ const AuthContext = createContext(undefined);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [token, setToken] = useState(localStorage.getItem('token'));
 
   const checkAuth = async () => {
@@ -61,6 +62,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    setIsLoggingOut(true);
+    
+    // Add a small delay to ensure loading screen is visible
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     try {
       const token = localStorage.getItem('token');
       await fetch('http://localhost:3003/auth/logout', {
@@ -72,6 +78,8 @@ export function AuthProvider({ children }) {
       setUser(null);
       setToken(null);
       localStorage.removeItem('token');
+      // Additional delay before redirect
+      await new Promise(resolve => setTimeout(resolve, 300));
       window.location.href = '/login';
     }
   };
@@ -81,7 +89,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, checkAuth, token }}>
+    <AuthContext.Provider value={{ user, isLoading, isLoggingOut, login, logout, checkAuth, token }}>
       {children}
     </AuthContext.Provider>
   );

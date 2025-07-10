@@ -27,7 +27,8 @@ import {
   Zap,
   BarChart3,
   Brain,
-  FileWarning
+  FileWarning,
+  LogOut
 } from 'lucide-react';
 
 // Helper function to format time ago
@@ -44,6 +45,31 @@ const formatTimeAgo = (date) => {
   if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
   if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
   return 'just now';
+};
+
+// Helper function to format time remaining
+const formatTimeRemaining = (expiresAt) => {
+  const now = new Date();
+  const expiry = new Date(expiresAt);
+  const diffMs = expiry - now;
+  
+  if (diffMs <= 0) return 'Expired';
+  
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h`;
+  if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m`;
+  if (diffMins > 0) return `${diffMins}m`;
+  return 'Soon';
+};
+
+// Helper function to check if session is expired
+const isSessionExpired = (expiresAt) => {
+  if (!expiresAt) return false;
+  return new Date(expiresAt) <= new Date();
 };
 
 function App() {
@@ -208,21 +234,17 @@ function App() {
       
       if (response.ok) {
         setSessionProgress({
-          current: data.processedFiles,
-          total: data.totalFiles,
+          current: data.processedPages || data.processedFiles,
+          total: data.totalPages || data.totalFiles,
           status: data.status
         });
         
         // If session is complete, update the session but don't remove immediately
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
           if (data.status === 'COMPLETED') {
-            // Keep session for download
-            const updatedSession = {
-              ...currentSession,
-              status: 'completed'
-            };
-            setCurrentSession(updatedSession);
-            localStorage.setItem('activeSession', JSON.stringify(updatedSession));
+            // Clear the current session to hide the processing alert
+            localStorage.removeItem('activeSession');
+            setCurrentSession(null);
             
             // Refresh session list to show completed session
             fetchAllUserSessions();
@@ -230,6 +252,7 @@ function App() {
             // Failed session, remove it
             localStorage.removeItem('activeSession');
             setCurrentSession(null);
+            fetchAllUserSessions();
           }
         }
       }
@@ -324,6 +347,9 @@ function App() {
       setPendingFiles(selectedFiles);
       countPages(selectedFiles);
       setShowConfirmModal(true);
+    } else {
+      // Clear the input if no valid files were selected
+      e.target.value = '';
     }
   };
 
@@ -344,12 +370,22 @@ function App() {
     setFiles(pendingFiles);
     createSessionAndUpload(pendingFiles);
     setShowConfirmModal(false);
+    // Clear the file input after confirmation
+    const fileInput = document.getElementById('file-upload');
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   const handleCancelUpload = () => {
     setPendingFiles([]);
     setFilePageCounts({});
     setShowConfirmModal(false);
+    // Clear the file input
+    const fileInput = document.getElementById('file-upload');
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   const [isUploading, setIsUploading] = useState(false);
@@ -363,7 +399,9 @@ function App() {
   // Create session and upload multiple files
   const createSessionAndUpload = async (filesToUpload) => {
     setIsUploading(true);
-    setSessionProgress({ current: 0, total: filesToUpload.length, status: 'processing' });
+    // Use total pages from filePageCounts
+    const totalPagesCount = Object.values(filePageCounts).reduce((sum, count) => sum + count, 0);
+    setSessionProgress({ current: 0, total: totalPagesCount, status: 'processing' });
     
     // Create a new session
     const sessionId = Date.now().toString();
@@ -409,7 +447,8 @@ function App() {
           id: result.sessionId, // Use server ID as the main ID
           clientId: session.id, // Keep original client ID for reference
           serverId: result.sessionId,
-          status: result.status
+          status: result.status,
+          totalPages: result.totalPages || totalPagesCount // Use server's totalPages
         };
         setCurrentSession(updatedSession);
         localStorage.setItem('activeSession', JSON.stringify(updatedSession));
@@ -449,6 +488,17 @@ function App() {
           'Authorization': `Bearer ${token}`
         }
       });
+      
+      if (response.status === 410) {
+        // Session expired
+        const errorData = await response.json();
+        alert(errorData.message || 'This session has expired. Files are no longer available for download.');
+        
+        // Refresh sessions to update the UI
+        fetchAllUserSessions();
+        return;
+      }
+      
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -460,12 +510,15 @@ function App() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        // Clear session after download
-        localStorage.removeItem('activeSession');
-        setCurrentSession(null);
-        setSessionProgress({ current: 0, total: 0, status: 'idle' });
+        // Clear session after download if it's the current session
+        if (currentSession && currentSession.id === sessionId) {
+          localStorage.removeItem('activeSession');
+          setCurrentSession(null);
+          setSessionProgress({ current: 0, total: 0, status: 'idle' });
+        }
       } else {
-        alert('Failed to download session results');
+        const errorData = await response.json().catch(() => ({}));
+        alert(errorData.error || 'Failed to download session results');
       }
     } catch (error) {
       console.error('Download error:', error);
@@ -579,7 +632,7 @@ function App() {
   // }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 overflow-x-hidden">
       {/* File Rename Builder Modal */}
       {showRenameBuilder && renameData && (
         <FileRenameBuilder
@@ -712,26 +765,33 @@ function App() {
 
       {/* Header */}
       <header className="relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-md shadow-sm border-b border-gray-100 dark:border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
-                <FileCheck className="h-6 w-6 text-white" />
+        <div className="w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-14 sm:h-16">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <div className="p-1.5 sm:p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex-shrink-0">
+                <FileCheck className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent truncate">
                   Dump Truck Invoice Reader
                 </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Automated Document Processing</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">Automated Document Processing</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-full border border-emerald-200">
-                <Zap className="h-4 w-4 text-emerald-600" />
-                <span className="text-sm font-semibold text-emerald-700">{user?.credits || 0} Credits</span>
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+              <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800">
+                <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">{user?.credits || 0}</span>
+                <span className="hidden sm:inline text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">Credits</span>
               </div>
-              <Button variant="outline" size="sm" className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" onClick={logout}>
-                Sign Out
+              <Button 
+                variant="outline" 
+                size="icon" 
+                className="h-8 w-8 sm:h-9 sm:w-9 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" 
+                onClick={logout}
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -739,7 +799,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="relative w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <StatCard
@@ -775,9 +835,9 @@ function App() {
         {/* Ongoing Training Section */}
         {/* <OngoingTraining /> */}
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 max-w-7xl mx-auto">
           {/* Upload Section */}
-          <div className="xl:col-span-3 space-y-6">
+          <div className="lg:col-span-2 xl:col-span-3 space-y-4 sm:space-y-6">
             <Card className="overflow-hidden border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white pb-20">
                 <div className="flex items-center justify-between">
@@ -884,9 +944,6 @@ function App() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Train custom models to extract specific data from your invoices
-                    </p>
                   </div>
                 </div>
 
@@ -922,13 +979,6 @@ function App() {
                   return null;
                 })()}
 
-                <Alert className="mt-6 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20">
-                  <Zap className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                  <AlertDescription className="text-indigo-700 dark:text-indigo-300">
-                    <strong>Free Tier Active:</strong> Process up to 2 pages per document (4MB max per page). 
-                    Multi-page PDFs are automatically split for optimal processing.
-                  </AlertDescription>
-                </Alert>
               </CardContent>
             </Card>
 
@@ -978,7 +1028,7 @@ function App() {
                   )}
                 </div>
                 {/* Status Filters */}
-                <div className="flex gap-3 mt-4">
+                <div className="flex flex-wrap gap-2 sm:gap-3 mt-4">
                   <Button
                     size="sm"
                     variant={sessionFilter === 'all' ? 'default' : 'outline'}
@@ -1038,7 +1088,7 @@ function App() {
                 ) : (
                   <>
                     {/* Current Active Session Alert */}
-                    {currentSession && (
+                    {currentSession && sessionProgress.status !== 'COMPLETED' && sessionProgress.status !== 'completed' && (
                       <Alert className="mb-4 border-blue-200 bg-blue-50 dark:bg-blue-900/20">
                         <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                         <AlertDescription className="text-blue-700 dark:text-blue-300">
@@ -1047,8 +1097,8 @@ function App() {
                       </Alert>
                     )}
                     
-                    {/* Sessions Table */}
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {/* Sessions Table - Desktop */}
+                    <div className="hidden sm:block rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-900">
                             <tr>
@@ -1057,6 +1107,9 @@ function App() {
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Created
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                Expires
                               </th>
                               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Files
@@ -1084,15 +1137,20 @@ function App() {
                                   const progress = session.totalPages > 0 
                                     ? Math.round((session.processedPages / session.totalPages) * 100)
                                     : 0;
-                                  const statusColor = {
-                                    'COMPLETED': 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
-                                    'FAILED': 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/20',
-                                    'PROCESSING': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
-                                    'ACTIVE': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
-                                    'UPLOADING': 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/20',
-                                    'CANCELLED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20',
-                                    'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
-                                  }[session.status] || 'text-gray-600 bg-gray-100';
+                                  const expired = isSessionExpired(session.expiresAt);
+                                  const timeRemaining = formatTimeRemaining(session.expiresAt);
+                                  
+                                  const statusColor = expired 
+                                    ? 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
+                                    : {
+                                      'COMPLETED': 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
+                                      'FAILED': 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/20',
+                                      'PROCESSING': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                      'ACTIVE': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                      'UPLOADING': 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/20',
+                                      'CANCELLED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20',
+                                      'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
+                                    }[session.status] || 'text-gray-600 bg-gray-100';
                                   
                                   return (
                                     <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -1102,12 +1160,15 @@ function App() {
                                       <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                                         {formatTimeAgo(session.createdAt)}
                                       </td>
+                                      <td className={`px-6 py-4 text-sm ${expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
+                                        {timeRemaining}
+                                      </td>
                                       <td className="px-6 py-4 text-sm text-center text-gray-900 dark:text-gray-100">
                                         {session.totalFiles}
                                       </td>
                                       <td className="px-6 py-4">
                                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
-                                          {session.status}
+                                          {expired ? 'EXPIRED' : session.status}
                                         </span>
                                       </td>
                                       <td className="px-6 py-4">
@@ -1127,12 +1188,23 @@ function App() {
                                         {session.status === 'COMPLETED' && (
                                           <Button
                                             size="sm"
-                                            variant="ghost"
-                                            onClick={() => downloadSessionResults(session.id)}
-                                            className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+                                            variant={expired ? "ghost" : "ghost"}
+                                            onClick={() => {
+                                              if (expired) {
+                                                alert('This session has expired. Files are no longer available for download.');
+                                              } else {
+                                                downloadSessionResults(session.id);
+                                              }
+                                            }}
+                                            disabled={expired}
+                                            className={`text-xs ${
+                                              expired 
+                                                ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
+                                                : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                                            }`}
                                           >
                                             <Download className="h-3 w-3 mr-1" />
-                                            Download
+                                            {expired ? 'Expired' : 'Download'}
                                           </Button>
                                         )}
                                       </td>
@@ -1143,13 +1215,108 @@ function App() {
                           </table>
                       </div>
                     
+                    {/* Sessions Cards - Mobile */}
+                    <div className="sm:hidden space-y-3">
+                      {userSessions
+                        .filter(s => {
+                          if (!currentSession) return true;
+                          return s.id !== currentSession.id && 
+                                 s.id !== currentSession.serverId &&
+                                 s.id !== currentSession.clientId;
+                        })
+                        .map((session) => {
+                          const progress = session.totalPages > 0 
+                            ? Math.round((session.processedPages / session.totalPages) * 100)
+                            : 0;
+                          const expired = isSessionExpired(session.expiresAt);
+                          const timeRemaining = formatTimeRemaining(session.expiresAt);
+                          
+                          return (
+                            <div key={session.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Session ID</p>
+                                  <p className="font-mono text-sm text-gray-900 dark:text-gray-100">{session.id.slice(0, 8)}...</p>
+                                </div>
+                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                  expired 
+                                    ? 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
+                                    : {
+                                      'COMPLETED': 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
+                                      'FAILED': 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/20',
+                                      'PROCESSING': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                      'ACTIVE': 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
+                                      'UPLOADING': 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/20',
+                                      'CANCELLED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20',
+                                      'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
+                                    }[session.status] || 'text-gray-600 bg-gray-100'
+                                }`}>
+                                  {expired ? 'EXPIRED' : session.status}
+                                </span>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
+                                  <p className="text-gray-900 dark:text-gray-100">{formatTimeAgo(session.createdAt)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Expires</p>
+                                  <p className={expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-900 dark:text-gray-100'}>
+                                    {timeRemaining}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    {session.totalFiles} file{session.totalFiles !== 1 ? 's' : ''}
+                                  </span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">{progress}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                  <div 
+                                    className="bg-indigo-600 h-2 rounded-full transition-all duration-300" 
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              </div>
+                              
+                              {session.status === 'COMPLETED' && (
+                                <Button
+                                  size="sm"
+                                  variant={expired ? "outline" : "default"}
+                                  onClick={() => {
+                                    if (expired) {
+                                      alert('This session has expired. Files are no longer available for download.');
+                                    } else {
+                                      downloadSessionResults(session.id);
+                                    }
+                                  }}
+                                  disabled={expired}
+                                  className={`w-full ${
+                                    expired 
+                                      ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
+                                      : ''
+                                  }`}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  {expired ? 'Expired' : 'Download Results'}
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                    
                     {/* Pagination */}
                     {totalSessions > sessionsPerPage && (
-                      <div className="flex items-center justify-between mt-4">
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          Showing {((currentPage - 1) * sessionsPerPage) + 1} to {Math.min(currentPage * sessionsPerPage, totalSessions)} of {totalSessions} sessions
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-3">
+                        <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 text-center sm:text-left">
+                          Showing {((currentPage - 1) * sessionsPerPage) + 1} to {Math.min(currentPage * sessionsPerPage, totalSessions)} of {totalSessions}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 sm:gap-2">
                           <Button
                             size="sm"
                             variant="outline"

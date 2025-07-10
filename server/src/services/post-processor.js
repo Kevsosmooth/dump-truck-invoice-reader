@@ -20,12 +20,22 @@ export async function postProcessJob(jobId) {
       console.log(`Job ${jobId} not ready for post-processing`);
       return;
     }
+    
+    // Check if already post-processed
+    if (job.processedFileUrl || job.newFileName) {
+      console.log(`Job ${jobId} already post-processed, skipping`);
+      return;
+    }
+    
+    // Only process child jobs (not parent jobs)
+    if (!job.parentJobId) {
+      console.log(`Job ${jobId} is a parent job, skipping post-processing`);
+      return;
+    }
 
     // Extract relevant fields for naming
     const fields = job.extractedFields;
     
-    // Debug: Log all available fields
-    console.log(`Available fields for job ${jobId}:`, Object.keys(fields));
     
     // Try to find company name, ticket number, and date
     let companyName = '';
@@ -61,11 +71,10 @@ export async function postProcessJob(jobId) {
       }
     }
 
-    // Extract date
+    // Extract date - check for any field containing "date" (case-insensitive)
+    // First try exact matches from predefined list
     for (const fieldName of dateFields) {
       if (fields[fieldName]) {
-        // Log the raw field structure for debugging
-        console.log(`Raw date field '${fieldName}':`, JSON.stringify(fields[fieldName], null, 2));
         
         const value = extractFieldValue(fields[fieldName]);
         console.log(`Extracted value from '${fieldName}': ${value}`);
@@ -78,6 +87,25 @@ export async function postProcessJob(jobId) {
         }
       }
     }
+    
+    // If no date found, check all fields for anything containing "date" (case-insensitive)
+    if (!date) {
+      for (const [fieldName, fieldValue] of Object.entries(fields)) {
+        if (fieldName.toLowerCase().includes('date')) {
+          
+          const value = extractFieldValue(fieldValue);
+          console.log(`Extracted value from '${fieldName}': ${value}`);
+          
+          if (value) {
+            date = formatDate(value);
+            console.log(`Formatted date from ${fieldName}: ${date}`);
+            if (date && date !== new Date().toISOString().split('T')[0]) {
+              break; // Found a valid date that's not today's date
+            }
+          }
+        }
+      }
+    }
 
     // Clean values for filename
     companyName = cleanForFilename(companyName || 'Unknown');
@@ -85,8 +113,14 @@ export async function postProcessJob(jobId) {
     date = date || new Date().toISOString().split('T')[0];
 
     // Generate new filename
-    const newFileName = `${companyName}_${ticketNumber}_${date}.pdf`;
-    console.log(`Generated new filename: ${newFileName} for job ${jobId}`);
+    const baseFileName = `${companyName}_${ticketNumber}_${date}`;
+    const newFileName = `${baseFileName}.pdf`;
+    console.log(`\n[RENAME] Processing job ${jobId}`);
+    console.log(`[RENAME]   Original: ${job.fileName}`);
+    console.log(`[RENAME]   Company: ${companyName}`);
+    console.log(`[RENAME]   Ticket: ${ticketNumber}`);
+    console.log(`[RENAME]   Date: ${date}`);
+    console.log(`[RENAME]   New name: ${newFileName}`);
 
     // Copy the original file to processed folder with new name
     const session = job.session;
@@ -148,8 +182,21 @@ function extractFieldValue(field) {
     return field;
   }
   if (field && typeof field === 'object') {
+    // Handle different field types from Azure Form Recognizer
+    
+    // Check field kind first
+    if (field.kind === 'selectionMark') {
+      // For checkboxes/selection marks, return checked status
+      return field.state === 'selected' ? 'Yes' : 'No';
+    }
+    
+    if (field.kind === 'signature') {
+      // For signatures, return whether it's signed
+      return field.state === 'signed' ? 'Signed' : 'Not Signed';
+    }
+    
     // Azure Form Recognizer sometimes returns nested structures
-    if (field.value !== undefined) {
+    if (field.value !== undefined && field.value !== null) {
       return field.value;
     }
     if (field.content !== undefined) {
@@ -197,6 +244,97 @@ function formatDate(dateStr) {
     
     // Trim and normalize the string
     dateStr = dateStr.toString().trim();
+    
+    // Handle numeric values (could be compressed date format or Excel serial date)
+    // Check if it's a pure numeric string or a string that looks like a number
+    const numericMatch = dateStr.match(/^[\s"']*(\d+)[\s"']*$/);
+    if (numericMatch || /^\d+$/.test(dateStr)) {
+      const numericValue = parseInt(numericMatch ? numericMatch[1] : dateStr);
+      const numericStr = numericValue.toString();
+      
+      // Check for compressed date formats first (e.g., 6525 = 6/5/25)
+      // Format: MDYY or MDDYY
+      if (numericStr.length === 3 || numericStr.length === 4 || numericStr.length === 5) {
+        let month, day, year;
+        
+        if (numericStr.length === 3) {
+          // MYY format (assume day = 1)
+          month = parseInt(numericStr.substring(0, 1));
+          day = 1;
+          year = 2000 + parseInt(numericStr.substring(1, 3));
+        } else if (numericStr.length === 4) {
+          // MDYY or MMYY format
+          const firstTwo = parseInt(numericStr.substring(0, 2));
+          if (firstTwo <= 12) {
+            // MMYY format (assume day = 1)
+            month = firstTwo;
+            day = 1;
+            year = 2000 + parseInt(numericStr.substring(2, 4));
+          } else {
+            // MDYY format
+            month = parseInt(numericStr.substring(0, 1));
+            day = parseInt(numericStr.substring(1, 2));
+            year = 2000 + parseInt(numericStr.substring(2, 4));
+          }
+        } else if (numericStr.length === 5) {
+          // MDDYY or MMDYY format
+          const firstTwo = parseInt(numericStr.substring(0, 2));
+          if (firstTwo <= 12) {
+            // MMDYY format
+            month = firstTwo;
+            day = parseInt(numericStr.substring(2, 3));
+            year = 2000 + parseInt(numericStr.substring(3, 5));
+          } else {
+            // MDDYY format
+            month = parseInt(numericStr.substring(0, 1));
+            day = parseInt(numericStr.substring(1, 3));
+            year = 2000 + parseInt(numericStr.substring(3, 5));
+          }
+        }
+        
+        // Validate the parsed date
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2000 && year <= 2099) {
+          const parsedDate = new Date(year, month - 1, day);
+          if (!isNaN(parsedDate.getTime())) {
+            console.log(`Parsed compressed date "${dateStr}" as ${month}/${day}/${year} to ${parsedDate.toISOString().split('T')[0]}`);
+            return parsedDate.toISOString().split('T')[0];
+          }
+        }
+      }
+      
+      // Excel serial date (days since 1900-01-01, but Excel incorrectly treats 1900 as leap year)
+      // Typical range: 40000+ for modern dates
+      if (numericValue > 40000 && numericValue < 50000) {
+        // Excel date serial number to JavaScript Date
+        // Excel's epoch is December 30, 1899 (not Jan 1, 1900 due to a bug)
+        const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const jsDate = new Date(excelEpoch.getTime() + numericValue * msPerDay);
+        
+        if (jsDate.getFullYear() > 2000 && jsDate.getFullYear() < 2100) {
+          console.log(`Parsed Excel serial date "${dateStr}" (${numericValue}) to ${jsDate.toISOString().split('T')[0]}`);
+          return jsDate.toISOString().split('T')[0];
+        }
+      }
+      
+      // Unix timestamp in seconds (10 digits)
+      if (numericValue > 1000000000 && numericValue < 2000000000) {
+        const jsDate = new Date(numericValue * 1000);
+        if (jsDate.getFullYear() > 1900 && jsDate.getFullYear() < 2100) {
+          console.log(`Parsed Unix timestamp ${numericValue} to ${jsDate.toISOString().split('T')[0]}`);
+          return jsDate.toISOString().split('T')[0];
+        }
+      }
+      
+      // Unix timestamp in milliseconds (13 digits)
+      if (numericValue > 1000000000000 && numericValue < 2000000000000) {
+        const jsDate = new Date(numericValue);
+        if (jsDate.getFullYear() > 1900 && jsDate.getFullYear() < 2100) {
+          console.log(`Parsed Unix timestamp (ms) ${numericValue} to ${jsDate.toISOString().split('T')[0]}`);
+          return jsDate.toISOString().split('T')[0];
+        }
+      }
+    }
     
     // Handle various date formats
     let parsedDate = null;
@@ -323,14 +461,56 @@ export async function postProcessSession(sessionId) {
         sessionId,
         status: 'COMPLETED',
         processedFileUrl: null, // Not yet post-processed
+        parentJobId: { not: null }, // Only process child jobs
       },
     });
 
-    console.log(`Post-processing ${jobs.length} jobs for session ${sessionId}`);
+    console.log('\n========================================');
+    console.log(`[POST-PROCESSING] Starting for session ${sessionId}`);
+    console.log(`[POST-PROCESSING] Jobs to rename: ${jobs.length}`);
+    console.log('========================================\n');
+
+    let successCount = 0;
+    let failedCount = 0;
 
     for (const job of jobs) {
-      await postProcessJob(job.id);
+      try {
+        await postProcessJob(job.id);
+        successCount++;
+      } catch (error) {
+        console.error(`[POST-PROCESSING] Failed to process job ${job.id}:`, error.message);
+        failedCount++;
+      }
     }
+
+    // Get final count of processed files
+    const processedJobs = await prisma.job.findMany({
+      where: {
+        sessionId,
+        status: 'COMPLETED',
+        processedFileUrl: { not: null },
+        parentJobId: { not: null },
+      },
+      select: {
+        id: true,
+        newFileName: true,
+        processedFileUrl: true,
+      }
+    });
+
+    console.log('\n========================================');
+    console.log('[POST-PROCESSING COMPLETE] Session Summary:');
+    console.log(`  - Session ID: ${sessionId}`);
+    console.log(`  - Successfully renamed: ${successCount}/${jobs.length} files`);
+    if (failedCount > 0) {
+      console.log(`  - Failed to rename: ${failedCount} files`);
+    }
+    console.log(`  - Total files ready for download: ${processedJobs.length}`);
+    console.log('[POST-PROCESSING] Renamed files:');
+    processedJobs.forEach((job, index) => {
+      console.log(`  ${index + 1}. ${job.newFileName || 'Unknown'}`);
+    });
+    console.log('========================================\n');
 
     // Generate Excel report and ZIP after all jobs are post-processed
     await generateSessionAssets(sessionId);
@@ -351,7 +531,7 @@ async function generateSessionAssets(sessionId) {
         jobs: {
           where: {
             status: 'COMPLETED',
-            parentJobId: null, // Only parent jobs
+            parentJobId: { not: null }, // Get child jobs - these have the extracted data
           },
         },
       },

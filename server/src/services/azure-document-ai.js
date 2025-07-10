@@ -83,8 +83,6 @@ export async function processDocumentFromUrl(documentUrl, fileName, modelId) {
     const document = result.documents[0];
     const fields = document.fields || {};
     
-    // Log the actual field structure for debugging
-    console.log('Raw fields from Azure:', JSON.stringify(fields, null, 2));
     
     // Extract the data - just return whatever fields the model found
     const extractedData = {
@@ -186,8 +184,6 @@ async function processDocumentFromUrlREST(documentUrl, fileName, modelId) {
     const document = result.documents[0];
     const fields = document.fields || {};
     
-    // Log the actual field structure for debugging
-    console.log('REST API: Raw fields from Azure:', JSON.stringify(fields, null, 2));
     
     // Extract the data - just return whatever fields the model found
     const extractedData = {

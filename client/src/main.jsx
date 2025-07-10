@@ -6,6 +6,7 @@ import { queryClient } from '@/lib/query-client'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/Login'
 import { AuthCallback } from './pages/AuthCallback'
+import { AppWrapper } from './components/AppWrapper'
 import { Loader2 } from 'lucide-react'
 import './index.css'
 import App from './App.jsx'
@@ -46,7 +47,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <QueryClientProvider client={queryClient}>
-          <AppRoutes />
+          <AppWrapper>
+            <AppRoutes />
+          </AppWrapper>
         </QueryClientProvider>
       </AuthProvider>
     </BrowserRouter>

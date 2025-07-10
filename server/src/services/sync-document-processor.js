@@ -35,13 +35,12 @@ export async function processDocumentSync(jobData) {
     // Remove the container name (first part after /)
     const blobPath = decodeURIComponent(pathParts.slice(2).join('/'));
     
-    console.log(`Generating SAS URL for blob: ${blobPath}`);
+    console.log(`[AZURE] Generating SAS URL for: ${blobPath}`);
     
     // Generate SAS URL for the blob (1 hour expiry)
     const { sasUrl } = await generateSasUrl(blobPath, 1);
     
-    console.log(`Generated SAS URL: ${sasUrl}`);
-    console.log(`Using model: ${modelId}`);
+    console.log(`[AZURE] Starting document analysis with model: ${modelId}`);
 
     // Wait for rate limit token
     await waitForToken();
@@ -84,18 +83,18 @@ export async function processDocumentSync(jobData) {
       },
     });
 
-    // Check if all jobs in session are complete
-    const session = await prisma.processingSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        jobs: {
-          where: { status: { not: 'COMPLETED' } },
-        },
+    // Check if all child jobs in session are complete
+    const remainingJobs = await prisma.job.count({
+      where: { 
+        sessionId,
+        status: { not: 'COMPLETED' },
+        parentJobId: { not: null } // Only check child jobs
       },
     });
 
-    if (session && session.jobs.length === 0) {
-      // All jobs complete
+    if (remainingJobs === 0) {
+      // All child jobs complete
+      console.log(`All jobs complete for session ${sessionId}, marking session as COMPLETED`);
       await prisma.processingSession.update({
         where: { id: sessionId },
         data: { status: 'COMPLETED' },
@@ -104,8 +103,7 @@ export async function processDocumentSync(jobData) {
 
     console.log(`✅ Job ${jobId} completed successfully`);
     
-    // Post-process the job to rename and organize files
-    await postProcessJob(jobId);
+    // Don't post-process here - we'll do it all at once after all jobs complete
     
     return result;
 
@@ -157,24 +155,63 @@ export async function processSessionJobs(sessionId) {
     where: {
       sessionId,
       status: 'QUEUED',
+      parentJobId: { not: null }, // Only get child jobs that need processing
     },
   });
 
-  console.log(`Processing ${jobs.length} jobs for session ${sessionId} with model ${session.modelId}`);
+  console.log('\n========================================');
+  console.log(`[PROCESSING] Starting session ${sessionId}`);
+  console.log(`[PROCESSING] Model: ${session.modelId}`);
+  console.log(`[PROCESSING] Jobs to process: ${jobs.length}`);
+  console.log('========================================\n');
 
   // Process jobs sequentially to respect rate limits
+  let processedCount = 0;
   for (const job of jobs) {
     try {
+      processedCount++;
+      console.log(`\n[PROCESSING] Job ${processedCount}/${jobs.length}: ${job.fileName}`);
+      
       await processDocumentSync({
         jobId: job.id,
         sessionId: job.sessionId,
         userId: job.userId,
         modelId: session.modelId, // Use modelId from session
       });
+      
+      console.log(`[PROCESSING] ✅ Completed ${processedCount}/${jobs.length}`);
     } catch (error) {
-      console.error(`Failed to process job ${job.id}:`, error);
+      console.error(`[PROCESSING] ❌ Failed job ${job.id}:`, error.message);
       // Continue with other jobs even if one fails
     }
+  }
+  
+  console.log('\n========================================');
+  console.log(`[PROCESSING COMPLETE] Session ${sessionId}`);
+  console.log(`[PROCESSING COMPLETE] Total processed: ${processedCount}/${jobs.length}`);
+  console.log('========================================\n');
+  
+  // Update session status to COMPLETED if all jobs are done
+  const failedJobs = await prisma.job.count({
+    where: {
+      sessionId,
+      status: 'FAILED',
+      parentJobId: { not: null }
+    }
+  });
+
+  if (failedJobs === 0 && processedCount === jobs.length) {
+    console.log(`[SESSION] All jobs completed successfully, marking session as COMPLETED`);
+    await prisma.processingSession.update({
+      where: { id: sessionId },
+      data: { status: 'COMPLETED' }
+    });
+  } else if (failedJobs > 0) {
+    console.log(`[SESSION] ${failedJobs} jobs failed, marking session as FAILED`);
+    await prisma.processingSession.update({
+      where: { id: sessionId },
+      data: { status: 'FAILED' }
+    });
   }
   
   // Post-process the entire session after all jobs are done

@@ -161,4 +161,102 @@ router.get('/session-debug/:sessionId', authenticateToken, async (req, res) => {
   }
 });
 
+// Development only - fix stuck session
+router.post('/fix-session/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    // Only allow in development
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'This endpoint is only available in development' });
+    }
+
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify session belongs to user
+    const session = await prisma.processingSession.findFirst({
+      where: { 
+        id: sessionId,
+        userId 
+      },
+      include: {
+        jobs: {
+          where: {
+            parentJobId: { not: null } // Only child jobs
+          }
+        }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Check job statuses
+    const completedJobs = session.jobs.filter(j => j.status === 'COMPLETED').length;
+    const totalJobs = session.jobs.length;
+
+    console.log(`[FIX-SESSION] Session ${sessionId}:`);
+    console.log(`  - Current status: ${session.status}`);
+    console.log(`  - Total child jobs: ${totalJobs}`);
+    console.log(`  - Completed jobs: ${completedJobs}`);
+
+    if (completedJobs === totalJobs && session.status !== 'COMPLETED') {
+      // Update session to completed
+      await prisma.processingSession.update({
+        where: { id: sessionId },
+        data: { 
+          status: 'COMPLETED',
+          processedPages: session.totalPages
+        }
+      });
+
+      console.log(`[FIX-SESSION] Updated session status to COMPLETED`);
+
+      // Check if post-processing is needed
+      const unprocessedJobs = await prisma.job.count({
+        where: {
+          sessionId,
+          status: 'COMPLETED',
+          processedFileUrl: null,
+          parentJobId: { not: null }
+        }
+      });
+
+      if (unprocessedJobs > 0) {
+        console.log(`[FIX-SESSION] Running post-processing for ${unprocessedJobs} unprocessed jobs...`);
+        await postProcessSession(sessionId);
+      }
+
+      return res.json({ 
+        success: true,
+        message: 'Session fixed and marked as completed',
+        status: 'COMPLETED',
+        completedJobs,
+        totalJobs
+      });
+    } else if (completedJobs === totalJobs) {
+      return res.json({ 
+        success: true,
+        message: 'Session already completed',
+        status: session.status,
+        completedJobs,
+        totalJobs
+      });
+    } else {
+      return res.json({ 
+        success: false,
+        message: 'Session has incomplete jobs',
+        status: session.status,
+        completedJobs,
+        totalJobs,
+        incomplete: totalJobs - completedJobs
+      });
+    }
+
+  } catch (error) {
+    console.error('Error fixing session:', error);
+    res.status(500).json({ error: 'Failed to fix session' });
+  }
+});
+
 export default router;

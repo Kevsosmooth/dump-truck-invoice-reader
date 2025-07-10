@@ -36,6 +36,38 @@ router.post('/:modelId/fields', async (req, res) => {
   res.json({ success: true });
 });
 
+// Get raw model info directly from Azure API (for debugging)
+router.get('/:modelId/raw', async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    
+    console.log('Fetching RAW model info for:', modelId);
+    
+    // Call Azure API directly
+    const apiUrl = `${endpoint}/formrecognizer/documentModels/${modelId}?api-version=2023-07-31`;
+    
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Ocp-Apim-Subscription-Key': apiKey
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Azure API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    res.json(data);
+    
+  } catch (error) {
+    console.error('Error getting raw model info:', error);
+    res.status(500).json({ 
+      error: 'Failed to get raw model information',
+      details: error.message
+    });
+  }
+});
+
 // Get model information
 router.get('/:modelId/info', async (req, res) => {
   try {
@@ -61,20 +93,32 @@ router.get('/:modelId/info', async (req, res) => {
     const fields = {};
     
     if (model.docTypes) {
-      // Get the first document type (usually there's only one for custom models)
-      const docTypeName = Object.keys(model.docTypes)[0];
-      console.log('Document type:', docTypeName);
+      // For composed models, merge fields from all document types
+      const docTypeNames = Object.keys(model.docTypes);
+      console.log('Document types found:', docTypeNames);
       
-      if (docTypeName && model.docTypes[docTypeName].fieldSchema) {
-        Object.entries(model.docTypes[docTypeName].fieldSchema).forEach(([fieldName, fieldInfo]) => {
-          fields[fieldName] = {
-            type: fieldInfo.type || 'string',
-            description: fieldInfo.description || fieldName.replace(/_/g, ' '),
-            required: fieldInfo.required || false
-          };
-        });
-        console.log('Fields found:', Object.keys(fields));
-      }
+      // Iterate through all document types and merge their fields
+      docTypeNames.forEach(docTypeName => {
+        if (model.docTypes[docTypeName].fieldSchema) {
+          Object.entries(model.docTypes[docTypeName].fieldSchema).forEach(([fieldName, fieldInfo]) => {
+            // If field doesn't exist yet, or if this docType has more info about it, update it
+            if (!fields[fieldName]) {
+              fields[fieldName] = {
+                type: fieldInfo.type || 'string',
+                description: fieldInfo.description || fieldName.replace(/_/g, ' '),
+                required: fieldInfo.required || false,
+                availableIn: [docTypeName] // Track which doc types have this field
+              };
+            } else {
+              // Field exists, just add this docType to the list
+              fields[fieldName].availableIn.push(docTypeName);
+            }
+          });
+        }
+      });
+      
+      console.log('Total unique fields found:', Object.keys(fields).length);
+      console.log('Fields:', Object.keys(fields).sort());
     }
 
     res.json({
