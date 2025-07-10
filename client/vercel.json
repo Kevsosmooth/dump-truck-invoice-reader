@@ -28,6 +28,10 @@
     {
       "source": "/auth/status",
       "destination": "https://dump-truck-invoice-reader.onrender.com/auth/status"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
