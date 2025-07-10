@@ -387,6 +387,11 @@ router.get('/session/:sessionId/status', authenticateToken, async (req, res) => 
             parentJobId: { not: null } // Only count child jobs
           },
           select: { id: true }
+        },
+        user: {
+          select: {
+            credits: true
+          }
         }
       }
     });
@@ -406,7 +411,8 @@ router.get('/session/:sessionId/status', authenticateToken, async (req, res) => 
       processedPages: session.processedPages,
       progress: session.totalPages > 0 
         ? Math.round((session.processedPages / session.totalPages) * 100)
-        : 0
+        : 0,
+      userCredits: session.user.credits
     });
 
   } catch (error) {

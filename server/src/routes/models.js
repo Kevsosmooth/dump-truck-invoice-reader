@@ -117,8 +117,8 @@ router.get('/:modelId/info', async (req, res) => {
         }
       });
       
-      console.log('Total unique fields found:', Object.keys(fields).length);
-      console.log('Fields:', Object.keys(fields).sort());
+      // console.log('Total unique fields found:', Object.keys(fields).length);
+      // console.log('Fields:', Object.keys(fields).sort());
     }
 
     res.json({

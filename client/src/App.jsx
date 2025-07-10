@@ -73,7 +73,7 @@ const isSessionExpired = (expiresAt) => {
 };
 
 function App() {
-  const { user, logout, token } = useAuth();
+  const { user, logout, token, updateCredits } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState([]);
   // const [showModelTraining, setShowModelTraining] = useState(false);
@@ -142,14 +142,7 @@ function App() {
       );
     }
 
-    // Exclude current session
-    if (currentSession) {
-      filteredSessions = filteredSessions.filter(s => 
-        s.id !== currentSession.id && 
-        s.id !== currentSession.serverId &&
-        s.id !== currentSession.clientId
-      );
-    }
+    // Don't exclude current session - we want to show it in the table
 
     // Update total count
     setTotalSessions(filteredSessions.length);
@@ -222,6 +215,16 @@ function App() {
     }
   }, []);
 
+  // Track last known credits to avoid unnecessary updates
+  const [lastKnownCredits, setLastKnownCredits] = useState(null);
+  
+  // Initialize last known credits when user loads
+  useEffect(() => {
+    if (user?.credits !== undefined && lastKnownCredits === null) {
+      setLastKnownCredits(user.credits);
+    }
+  }, [user?.credits]);
+  
   // Check session status from server
   const checkSessionStatus = async (sessionId) => {
     try {
@@ -238,6 +241,20 @@ function App() {
           total: data.totalPages || data.totalFiles,
           status: data.status
         });
+        
+        // Only update credits if they actually decreased (not just different from current state)
+        if (data.userCredits !== undefined) {
+          const currentCredits = lastKnownCredits !== null ? lastKnownCredits : user?.credits || 0;
+          if (data.userCredits < currentCredits) {
+            console.log(`[Credits] Decreased from ${currentCredits} to ${data.userCredits}`);
+            updateCredits(data.userCredits);
+            setLastKnownCredits(data.userCredits);
+          } else if (data.userCredits === currentCredits) {
+            // Credits haven't changed, do nothing
+          } else {
+            console.log(`[Credits] Unexpected increase or same value: ${currentCredits} -> ${data.userCredits}`);
+          }
+        }
         
         // If session is complete, update the session but don't remove immediately
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
@@ -399,9 +416,10 @@ function App() {
   // Create session and upload multiple files
   const createSessionAndUpload = async (filesToUpload) => {
     setIsUploading(true);
+    
     // Use total pages from filePageCounts
     const totalPagesCount = Object.values(filePageCounts).reduce((sum, count) => sum + count, 0);
-    setSessionProgress({ current: 0, total: totalPagesCount, status: 'processing' });
+    setSessionProgress({ current: 0, total: totalPagesCount, status: 'UPLOADING' });
     
     // Create a new session
     const sessionId = Date.now().toString();
@@ -779,7 +797,7 @@ function App() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-              <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800">
+              <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800 transition-all duration-300">
                 <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">{user?.credits || 0}</span>
                 <span className="hidden sm:inline text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">Credits</span>
@@ -935,11 +953,11 @@ function App() {
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select a model" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-gray-800">
+                      <SelectContent>
                         <SelectItem value="Silvi_Reader_Full_2.0">
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="text-xs">Custom</Badge>
-                            <span className="text-gray-900 dark:text-gray-100">Silvi Reader Full 2.0</span>
+                            <span>Silvi Reader Full 2.0</span>
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -1077,16 +1095,6 @@ function App() {
                   </div>
                 ) : (
                   <>
-                    {/* Current Active Session Alert */}
-                    {currentSession && sessionProgress.status !== 'COMPLETED' && sessionProgress.status !== 'completed' && (
-                      <Alert className="mb-4 border-blue-200 bg-blue-50 dark:bg-blue-900/20">
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                        <AlertDescription className="text-blue-700 dark:text-blue-300">
-                          Active session in progress. Processing {sessionProgress.current} of {sessionProgress.total} pages...
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    
                     {/* Sessions Table - Desktop */}
                     <div className="hidden sm:block rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -1102,7 +1110,7 @@ function App() {
                                 Expires
                               </th>
                               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Files
+                                Pages
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Status
@@ -1117,12 +1125,6 @@ function App() {
                           </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                               {userSessions
-                                .filter(s => {
-                                  if (!currentSession) return true;
-                                  return s.id !== currentSession.id && 
-                                         s.id !== currentSession.serverId &&
-                                         s.id !== currentSession.clientId;
-                                })
                                 .map((session) => {
                                   const progress = session.totalPages > 0 
                                     ? Math.round((session.processedPages / session.totalPages) * 100)
@@ -1154,10 +1156,13 @@ function App() {
                                         {timeRemaining}
                                       </td>
                                       <td className="px-6 py-4 text-sm text-center text-gray-900 dark:text-gray-100">
-                                        {session.totalFiles}
+                                        {session.totalPages || session.totalFiles}
                                       </td>
                                       <td className="px-6 py-4">
-                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                                          {session.status === 'PROCESSING' && (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                          )}
                                           {expired ? 'EXPIRED' : session.status}
                                         </span>
                                       </td>
@@ -1208,12 +1213,6 @@ function App() {
                     {/* Sessions Cards - Mobile */}
                     <div className="sm:hidden space-y-3">
                       {userSessions
-                        .filter(s => {
-                          if (!currentSession) return true;
-                          return s.id !== currentSession.id && 
-                                 s.id !== currentSession.serverId &&
-                                 s.id !== currentSession.clientId;
-                        })
                         .map((session) => {
                           const progress = session.totalPages > 0 
                             ? Math.round((session.processedPages / session.totalPages) * 100)
@@ -1241,6 +1240,9 @@ function App() {
                                       'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
                                     }[session.status] || 'text-gray-600 bg-gray-100'
                                 }`}>
+                                  {session.status === 'PROCESSING' && (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  )}
                                   {expired ? 'EXPIRED' : session.status}
                                 </span>
                               </div>
@@ -1261,7 +1263,7 @@ function App() {
                               <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    {session.totalFiles} file{session.totalFiles !== 1 ? 's' : ''}
+                                    {session.totalPages || session.totalFiles} page{(session.totalPages || session.totalFiles) !== 1 ? 's' : ''}
                                   </span>
                                   <span className="text-xs text-gray-500 dark:text-gray-400">{progress}%</span>
                                 </div>
@@ -1444,7 +1446,9 @@ function App() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-5xl font-bold mb-2">{user?.credits || 0}</div>
+                  <div className="text-5xl font-bold mb-2">
+                    {user?.credits || 0}
+                  </div>
                   <p className="text-emerald-100 mb-6">
                     Process up to {user?.credits || 0} more pages
                   </p>

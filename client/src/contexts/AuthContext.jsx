@@ -6,20 +6,34 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  
+  // Get token from localStorage, but filter out invalid values
+  const getStoredToken = () => {
+    const storedToken = localStorage.getItem('token');
+    if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      return null;
+    }
+    return storedToken;
+  };
+  
+  const [token, setToken] = useState(getStoredToken());
 
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
+      const storedToken = getStoredToken();
+      if (!storedToken) {
         setUser(null);
+        setToken(null);
         setIsLoading(false);
         return;
       }
 
+      // Update token state
+      setToken(storedToken);
+
       const response = await fetch('http://localhost:3003/auth/me', {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${storedToken}`
         },
         credentials: 'include'
       });
@@ -35,6 +49,7 @@ export function AuthProvider({ children }) {
     } catch (error) {
       console.error('Auth check failed:', error);
       setUser(null);
+      setToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -68,12 +83,14 @@ export function AuthProvider({ children }) {
     await new Promise(resolve => setTimeout(resolve, 500));
     
     try {
-      const token = localStorage.getItem('token');
-      await fetch('http://localhost:3003/auth/logout', {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        credentials: 'include'
-      });
+      const token = getStoredToken();
+      if (token) {
+        await fetch('http://localhost:3003/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          credentials: 'include'
+        });
+      }
     } finally {
       setUser(null);
       setToken(null);
@@ -85,11 +102,27 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
+    // Clean up invalid tokens on mount
+    const storedToken = localStorage.getItem('token');
+    if (storedToken === 'null' || storedToken === 'undefined' || storedToken === '') {
+      localStorage.removeItem('token');
+    }
+    
     checkAuth();
   }, []);
 
+  // Update only credits without full auth check
+  const updateCredits = (newCredits) => {
+    if (user && typeof newCredits === 'number') {
+      setUser(prevUser => ({
+        ...prevUser,
+        credits: newCredits
+      }));
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, isLoggingOut, login, logout, checkAuth, token }}>
+    <AuthContext.Provider value={{ user, isLoading, isLoggingOut, login, logout, checkAuth, token, updateCredits }}>
       {children}
     </AuthContext.Provider>
   );

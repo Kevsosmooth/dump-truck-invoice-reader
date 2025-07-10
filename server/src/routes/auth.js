@@ -21,8 +21,10 @@ const createSession = async (userId) => {
 
   // Check which secret we're using
   const jwtSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
-  console.log('[AUTH] Creating session for user:', userId);
-  console.log('[AUTH] Using JWT secret:', jwtSecret ? 'Secret is defined' : 'NO SECRET DEFINED!');
+  
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET or SESSION_SECRET must be defined in environment variables');
+  }
 
   // Add timestamp and random string to ensure uniqueness
   const token = jwt.sign(
