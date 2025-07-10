@@ -7,11 +7,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://your-api.onrender.com/api/:path*"
+      "destination": "https://dump-truck-invoice-reader.onrender.com/api/:path*"
     },
     {
       "source": "/auth/:path*",
-      "destination": "https://your-api.onrender.com/auth/:path*"
+      "destination": "https://dump-truck-invoice-reader.onrender.com/auth/:path*"
     }
   ],
   "headers": [
