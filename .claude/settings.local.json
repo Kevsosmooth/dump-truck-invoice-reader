@@ -45,7 +45,8 @@
       "mcp__supabase__list_migrations",
       "Bash(git rm:*)",
       "Bash(true)",
-      "mcp__supabase__search_docs"
+      "mcp__supabase__search_docs",
+      "mcp__supabase__execute_sql"
     ],
     "deny": []
   },

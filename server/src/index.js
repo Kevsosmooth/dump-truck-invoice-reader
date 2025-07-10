@@ -138,6 +138,10 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev', devRoutes);
 }
 
+// Temporary route for hash generation (REMOVE AFTER USE)
+import devTempRoutes from './routes/dev-temp.js';
+app.use('/api/temp', devTempRoutes);
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
