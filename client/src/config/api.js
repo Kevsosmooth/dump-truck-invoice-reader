@@ -61,9 +61,14 @@ export const API_ENDPOINTS = {
 export const fetchWithAuth = async (url, options = {}) => {
   const token = localStorage.getItem('token');
   
+  // Don't set Content-Type for FormData - let browser set it with boundary
+  const isFormData = options.body instanceof FormData;
+  
+  const defaultHeaders = isFormData ? {} : { 'Content-Type': 'application/json' };
+  
   const defaultOptions = {
     headers: {
-      'Content-Type': 'application/json',
+      ...defaultHeaders,
       ...options.headers,
     },
     credentials: 'include', // Still include for backward compatibility

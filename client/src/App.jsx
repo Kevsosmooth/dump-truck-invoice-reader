@@ -123,8 +123,30 @@ function App() {
 
   // Apply client-side filtering and pagination
   const applyFilterAndPagination = (sessions, filter, page) => {
+    // Include currentSession if it exists and is not already in the list
+    let allSessionsWithCurrent = [...sessions];
+    if (currentSession && sessionProgress.status !== 'idle') {
+      // Check if currentSession is already in the list
+      const existingIndex = sessions.findIndex(s => 
+        s.id === currentSession.id || 
+        s.id === currentSession.serverId ||
+        s.id === currentSession.clientId
+      );
+      
+      // If not found, add it to the beginning
+      if (existingIndex === -1) {
+        const currentSessionData = {
+          ...currentSession,
+          status: sessionProgress.status === 'processing' ? 'PROCESSING' : sessionProgress.status,
+          processedPages: sessionProgress.current,
+          totalPages: sessionProgress.total,
+        };
+        allSessionsWithCurrent = [currentSessionData, ...sessions];
+      }
+    }
+    
     // Filter sessions based on status
-    let filteredSessions = sessions;
+    let filteredSessions = allSessionsWithCurrent;
     
     if (filter !== 'all') {
       const statusMap = {
@@ -134,17 +156,8 @@ function App() {
       };
       
       const allowedStatuses = statusMap[filter] || [];
-      filteredSessions = sessions.filter(session => 
+      filteredSessions = allSessionsWithCurrent.filter(session => 
         allowedStatuses.includes(session.status)
-      );
-    }
-
-    // Exclude current session
-    if (currentSession) {
-      filteredSessions = filteredSessions.filter(s => 
-        s.id !== currentSession.id && 
-        s.id !== currentSession.serverId &&
-        s.id !== currentSession.clientId
       );
     }
 
@@ -168,10 +181,10 @@ function App() {
 
   // Apply filters and pagination when they change (client-side only)
   useEffect(() => {
-    if (allUserSessions.length > 0) {
+    if (allUserSessions.length > 0 || currentSession) {
       applyFilterAndPagination(allUserSessions, sessionFilter, currentPage);
     }
-  }, [sessionFilter, currentPage, currentSession, allUserSessions]);
+  }, [sessionFilter, currentPage, currentSession, sessionProgress, allUserSessions]);
 
   // Session recovery from localStorage
   useEffect(() => {
@@ -231,6 +244,16 @@ function App() {
           total: data.totalPages || data.totalFiles,
           status: data.status
         });
+        
+        // Update currentSession with server data to keep it in sync
+        if (currentSession && (data.status === 'PROCESSING' || data.status === 'UPLOADING')) {
+          setCurrentSession(prev => ({
+            ...prev,
+            status: data.status,
+            processedPages: data.processedPages || data.processedFiles,
+            totalPages: data.totalPages || data.totalFiles,
+          }));
+        }
         
         // If session is complete, update the session but don't remove immediately
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
@@ -394,13 +417,21 @@ function App() {
     
     // Create a new session
     const sessionId = Date.now().toString();
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
     const session = {
       id: sessionId,
       clientId: sessionId, // Keep track of client-side ID
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      status: 'UPLOADING',
       totalFiles: filesToUpload.length,
+      totalPages: totalPagesCount,
+      processedPages: 0,
       processedFiles: 0,
-      files: filesToUpload.map(f => ({ name: f.name, status: 'pending' }))
+      files: filesToUpload.map(f => ({ name: f.name, status: 'pending' })),
+      jobs: []
     };
     
     setCurrentSession(session);
@@ -1092,12 +1123,6 @@ function App() {
                           </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                               {userSessions
-                                .filter(s => {
-                                  if (!currentSession) return true;
-                                  return s.id !== currentSession.id && 
-                                         s.id !== currentSession.serverId &&
-                                         s.id !== currentSession.clientId;
-                                })
                                 .map((session) => {
                                   const progress = session.totalPages > 0 
                                     ? Math.round((session.processedPages / session.totalPages) * 100)

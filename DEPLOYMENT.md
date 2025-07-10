@@ -15,24 +15,23 @@ This guide covers deploying the Invoice Processor application using:
 
 2. Your code pushed to GitHub
 
-## Step 1: Database Setup (Supabase)
+## Step 1: Database Setup (Supabase) ✅ COMPLETED
 
-1. **Create a new Supabase project**
-   - Go to [app.supabase.com](https://app.supabase.com)
-   - Click "New project"
-   - Save your database password securely
+Your Supabase database is already set up with:
+- **Project URL**: `https://tnbplzwfumvyqyedtrdf.supabase.co`
+- **Database**: All tables migrated and ready
+- **Connection strings** are in your `.env` file
 
-2. **Run migrations**
-   ```bash
-   # Get your connection string from Supabase dashboard
-   # Settings > Database > Connection string > Nodejs
-   
-   cd server
-   npx prisma migrate deploy --schema ./prisma/schema.prisma
-   ```
+### Your Supabase Connection Details:
+```
+# Pooled connection (for your app):
+DATABASE_URL="postgresql://postgres.tnbplzwfumvyqyedtrdf:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
 
-3. **Note your connection string**
-   - Format: `postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres`
+# Direct connection (for migrations):
+DIRECT_URL="postgresql://postgres.tnbplzwfumvyqyedtrdf:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
+```
+
+**Note**: Replace `[YOUR-PASSWORD]` with your actual Supabase database password from the dashboard.
 
 ## Step 2: Backend Deployment (Render)
 
@@ -41,16 +40,45 @@ This guide covers deploying the Invoice Processor application using:
    - Choose the `server` directory as root
 
 2. **Configure build settings**
-   - Build Command: `npm install && npx prisma generate && npx prisma migrate deploy`
+   - Build Command: `npm install && npx prisma generate`
    - Start Command: `npm start`
    - Environment: Node
    - Region: Choose closest to your users
+   - Branch: main
 
 3. **Add environment variables**
-   Copy all variables from `server/.env.production.example` and set them in Render:
-   - Click "Environment" tab
-   - Add each variable
-   - **Important**: Set actual values, not placeholders
+   Click "Environment" tab and add these variables:
+
+   **Database (Supabase)**:
+   ```
+   DATABASE_URL=postgresql://postgres.tnbplzwfumvyqyedtrdf:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+   ```
+
+   **Server Config**:
+   ```
+   PORT=3003
+   NODE_ENV=production
+   CLIENT_URL=https://your-app.vercel.app
+   ```
+
+   **Azure Services** (from your .env):
+   ```
+   AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://silvi.cognitiveservices.azure.com/
+   AZURE_DOCUMENT_INTELLIGENCE_KEY=[Your Azure Key]
+   AZURE_CUSTOM_MODEL_ID=Silvi_Reader_Full_2.0
+   AZURE_STORAGE_ACCOUNT_NAME=dumptruckinvoicereader
+   AZURE_STORAGE_ACCOUNT_KEY=[Your Storage Key]
+   AZURE_STORAGE_CONTAINER_NAME=documents
+   ```
+
+   **Authentication**:
+   ```
+   JWT_SECRET=[Generate a secure random string]
+   SESSION_SECRET=[Generate another secure random string]
+   GOOGLE_CLIENT_ID=[Your Google OAuth Client ID]
+   GOOGLE_CLIENT_SECRET=[Your Google OAuth Secret]
+   GOOGLE_CALLBACK_URL=https://your-backend.onrender.com/auth/google/callback
+   ```
 
 4. **Deploy**
    - Click "Create Web Service"

@@ -19,7 +19,7 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 4 * 1024 * 1024, // 4MB limit for free tier
+    fileSize: 500 * 1024 * 1024, // 500MB limit (Azure Standard tier)
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];

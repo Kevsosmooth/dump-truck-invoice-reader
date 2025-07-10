@@ -45,8 +45,18 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Apply JSON parser to all routes except multipart uploads
+app.use((req, res, next) => {
+  // Skip JSON parsing for multipart/form-data routes
+  if (req.is('multipart/form-data')) {
+    next();
+  } else {
+    express.json({ limit: '500mb' })(req, res, next);
+  }
+});
+
+app.use(express.urlencoded({ limit: '500mb', extended: true }));
 app.use(passport.initialize());
 
 // Health check endpoint
