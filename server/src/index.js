@@ -6,8 +6,10 @@ import { PrismaClient } from '@prisma/client';
 import passport from 'passport';
 import './config/passport.js';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables only in development
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 // Initialize Express app
 const app = express();
