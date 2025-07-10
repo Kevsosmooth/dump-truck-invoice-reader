@@ -63,9 +63,56 @@ app.use((req, res, next) => {
 app.use(express.urlencoded({ limit: '500mb', extended: true }));
 app.use(passport.initialize());
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Root endpoint - API information
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Dump Truck Invoice Reader API',
+    version: '1.0.0',
+    status: 'running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/api/health',
+      auth: {
+        google: '/auth/google',
+        logout: '/auth/logout',
+        status: '/auth/status'
+      },
+      api: {
+        sessions: '/api/sessions',
+        models: '/api/models',
+        user: '/api/user',
+        jobs: '/api/jobs'
+      }
+    },
+    documentation: 'https://github.com/Kevsosmooth/dump-truck-invoice-reader'
+  });
+});
+
+// Health check endpoint with more details
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    
+    res.json({ 
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: 'connected',
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + ' MB'
+      }
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: error.message
+    });
+  }
 });
 
 // Routes
