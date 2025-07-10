@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { API_ENDPOINTS, fetchWithAuth } from '../config/api';
 
 const AuthContext = createContext(undefined);
 
@@ -17,12 +18,7 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      const response = await fetch('http://localhost:3003/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        credentials: 'include'
-      });
+      const response = await fetchWithAuth(API_ENDPOINTS.AUTH.ME);
 
       if (response.ok) {
         const data = await response.json();
@@ -41,10 +37,8 @@ export function AuthProvider({ children }) {
   };
 
   const login = async (email, password) => {
-    const response = await fetch('http://localhost:3003/auth/login', {
+    const response = await fetchWithAuth(API_ENDPOINTS.AUTH.LOGIN, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ email, password })
     });
 
@@ -68,11 +62,8 @@ export function AuthProvider({ children }) {
     await new Promise(resolve => setTimeout(resolve, 500));
     
     try {
-      const token = localStorage.getItem('token');
-      await fetch('http://localhost:3003/auth/logout', {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        credentials: 'include'
+      await fetchWithAuth(API_ENDPOINTS.AUTH.LOGOUT, {
+        method: 'POST'
       });
     } finally {
       setUser(null);

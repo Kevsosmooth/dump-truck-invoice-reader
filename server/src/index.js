@@ -15,11 +15,36 @@ const PORT = process.env.PORT || 3003;
 // Initialize Prisma
 export const prisma = new PrismaClient();
 
-// Middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+// CORS configuration for production
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.CLIENT_URL,
+      'http://localhost:5173',
+      'http://localhost:3000',
+      // Add your Vercel domains here
+      process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
+      process.env.PRODUCTION_URL,
+    ].filter(Boolean); // Remove any undefined values
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['set-cookie'],
+};
+
+// Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(passport.initialize());

@@ -11,6 +11,7 @@ import { FileRenameBuilder } from '@/components/FileRenameBuilder';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { countPDFPages } from '@/lib/pdf-utils';
+import { API_URL, fetchWithAuth } from '@/config/api';
 import { 
   Upload, 
   FileText, 
@@ -101,15 +102,11 @@ function App() {
     
     try {
       // Fetch all sessions without pagination
-      const url = new URL('http://localhost:3003/api/jobs/sessions');
+      const url = new URL(`${API_URL}/api/jobs/sessions`);
       url.searchParams.append('limit', 1000); // Get all sessions
       url.searchParams.append('offset', 0);
 
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(url.toString());
       
       if (response.ok) {
         const data = await response.json();
@@ -225,11 +222,7 @@ function App() {
   // Check session status from server
   const checkSessionStatus = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/status`);
       const data = await response.json();
       
       if (response.ok) {
@@ -276,11 +269,7 @@ function App() {
   useEffect(() => {
     const fetchModelInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:3003/api/models/${selectedModel}/info`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const response = await fetchWithAuth(`${API_URL}/api/models/${selectedModel}/info`);
         const data = await response.json();
         
         if (response.ok) {
@@ -428,11 +417,8 @@ function App() {
     });
 
     try {
-      const response = await fetch('http://localhost:3003/api/jobs/upload', {
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/upload`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: formData,
       });
 
@@ -483,11 +469,7 @@ function App() {
   // Download session results
   const downloadSessionResults = async (sessionId) => {
     try {
-      const response = await fetch(`http://localhost:3003/api/jobs/session/${sessionId}/download`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/download`);
       
       if (response.status === 410) {
         // Session expired
@@ -582,11 +564,7 @@ function App() {
 
   const exportToExcel = async () => {
     try {
-      const response = await fetch('http://localhost:3003/api/jobs/export/excel', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}/api/jobs/export/excel`);
       
       if (response.ok) {
         const blob = await response.blob();
@@ -988,11 +966,8 @@ function App() {
                       onClick={async () => {
                         if (window.confirm('Are you sure you want to delete ALL your sessions? This cannot be undone!')) {
                           try {
-                            const response = await fetch('http://localhost:3003/api/dev/clear-sessions', {
-                              method: 'DELETE',
-                              headers: {
-                                'Authorization': `Bearer ${token}`
-                              }
+                            const response = await fetchWithAuth(`${API_URL}/api/dev/clear-sessions`, {
+                              method: 'DELETE'
                             });
                             
                             if (response.ok) {
@@ -1629,15 +1604,12 @@ function JobItem({ fileName, status, date, pages, progress, error, amount }) {
 
 function JobItemWithDownload({ job }) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const { token } = useAuth();
   
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      const response = await fetch(`http://localhost:3003${job.downloadUrl}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth(`${API_URL}${job.downloadUrl}`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
