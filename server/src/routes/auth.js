@@ -9,8 +9,23 @@ const prisma = new PrismaClient();
 
 // Helper function to create session
 const createSession = async (userId) => {
+  // Clean up any expired sessions for this user
+  await prisma.session.deleteMany({
+    where: {
+      userId,
+      expiresAt: {
+        lt: new Date()
+      }
+    }
+  });
+
+  // Add timestamp and random string to ensure uniqueness
   const token = jwt.sign(
-    { userId },
+    { 
+      userId,
+      timestamp: Date.now(),
+      random: Math.random().toString(36).substring(7)
+    },
     process.env.SESSION_SECRET,
     { expiresIn: '7d' }
   );
@@ -18,13 +33,21 @@ const createSession = async (userId) => {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  await prisma.session.create({
-    data: {
-      userId,
-      token,
-      expiresAt
+  try {
+    await prisma.session.create({
+      data: {
+        userId,
+        token,
+        expiresAt
+      }
+    });
+  } catch (error) {
+    // If token already exists (extremely unlikely), generate a new one
+    if (error.code === 'P2002') {
+      return createSession(userId); // Recursive call with new random values
     }
-  });
+    throw error;
+  }
 
   return token;
 };
