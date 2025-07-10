@@ -11,7 +11,7 @@ import { Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { checkAuth } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -45,7 +45,8 @@ export function LoginPage() {
       // Store token and update auth context
       if (data.token) {
         localStorage.setItem('token', data.token);
-        await login(data.token);
+        // Force auth check to update user state
+        await checkAuth();
       }
 
       // Navigate to dashboard
