@@ -19,6 +19,11 @@ const createSession = async (userId) => {
     }
   });
 
+  // Check which secret we're using
+  const jwtSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+  console.log('[AUTH] Creating session for user:', userId);
+  console.log('[AUTH] Using JWT secret:', jwtSecret ? 'Secret is defined' : 'NO SECRET DEFINED!');
+
   // Add timestamp and random string to ensure uniqueness
   const token = jwt.sign(
     { 
@@ -26,7 +31,7 @@ const createSession = async (userId) => {
       timestamp: Date.now(),
       random: Math.random().toString(36).substring(7)
     },
-    process.env.JWT_SECRET || process.env.SESSION_SECRET,
+    jwtSecret,
     { expiresIn: '7d' }
   );
 
@@ -195,6 +200,17 @@ router.post('/logout', async (req, res) => {
     console.error('Logout error:', error);
     return res.status(500).json({ error: 'Failed to logout' });
   }
+});
+
+// Test endpoint to check JWT configuration
+router.get('/test-jwt', async (req, res) => {
+  const jwtSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+  return res.json({
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    hasSessionSecret: !!process.env.SESSION_SECRET,
+    secretDefined: !!jwtSecret,
+    nodeEnv: process.env.NODE_ENV
+  });
 });
 
 // Get current user

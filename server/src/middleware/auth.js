@@ -14,10 +14,15 @@ export const authenticateToken = async (req, res, next) => {
 
     // Verify JWT token
     let decoded;
+    const jwtSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+    console.log('[AUTH] Verifying token with secret:', jwtSecret ? 'Secret is defined' : 'NO SECRET DEFINED!');
+    
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || process.env.SESSION_SECRET);
+      decoded = jwt.verify(token, jwtSecret);
+      console.log('[AUTH] Token decoded successfully, userId:', decoded.userId);
     } catch (jwtError) {
       console.error('[AUTH] JWT verification failed:', jwtError.message);
+      console.error('[AUTH] Token preview:', token.substring(0, 20) + '...');
       return res.status(403).json({ error: 'Invalid token format.' });
     }
     
