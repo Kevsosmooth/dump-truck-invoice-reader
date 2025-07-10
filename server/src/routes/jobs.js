@@ -96,6 +96,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
     });
     console.log('========================================\n');
 
+    // Create session - temporarily store demo mode in modelId field
     const session = await prisma.processingSession.create({
       data: {
         id: sessionId,
@@ -104,11 +105,8 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
         totalPages,
         status: 'UPLOADING',
         blobPrefix,
-        modelId,
+        modelId: demoMode ? `${modelId}__DEMO` : modelId,
         expiresAt,
-        metadata: {
-          demoMode: demoMode
-        }
       },
     });
 

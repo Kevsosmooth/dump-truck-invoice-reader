@@ -26,8 +26,8 @@ export async function processDocumentSync(jobData) {
       throw new Error(`Job ${jobId} not found`);
     }
     
-    // Check if demo mode is enabled
-    const isDemoMode = job.session?.metadata?.demoMode || false;
+    // Check if demo mode is enabled (temporarily stored in modelId)
+    const isDemoMode = job.session?.modelId?.includes('__DEMO') || false;
 
     // Update job status to PROCESSING
     await prisma.job.update({
@@ -165,6 +165,9 @@ export async function processSessionJobs(sessionId) {
   if (!session) {
     throw new Error(`Session ${sessionId} not found`);
   }
+  
+  // Extract actual modelId (remove __DEMO suffix if present)
+  const actualModelId = session.modelId?.replace('__DEMO', '') || session.modelId;
 
   const jobs = await prisma.job.findMany({
     where: {
@@ -176,7 +179,10 @@ export async function processSessionJobs(sessionId) {
 
   console.log('\n========================================');
   console.log(`[PROCESSING] Starting session ${sessionId}`);
-  console.log(`[PROCESSING] Model: ${session.modelId}`);
+  console.log(`[PROCESSING] Model: ${actualModelId}`);
+  if (session.modelId?.includes('__DEMO')) {
+    console.log(`[PROCESSING] Demo Mode: ENABLED`);
+  }
   console.log(`[PROCESSING] Jobs to process: ${jobs.length}`);
   console.log('========================================\n');
 
@@ -191,7 +197,7 @@ export async function processSessionJobs(sessionId) {
         jobId: job.id,
         sessionId: job.sessionId,
         userId: job.userId,
-        modelId: session.modelId, // Use modelId from session
+        modelId: actualModelId, // Use cleaned modelId from session
       });
       
       console.log(`[PROCESSING] ✅ Completed ${processedCount}/${jobs.length}`);
