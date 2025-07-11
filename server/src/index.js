@@ -147,6 +147,7 @@ import modelsRoutes from './routes/models.js';
 import sessionRoutes from './routes/sessions.js';
 import devRoutes from './routes/dev.js';
 import tierInfoRoutes from './routes/tier-info.js';
+import metricsRoutes from './routes/metrics.js';
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
@@ -157,6 +158,7 @@ app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // Development routes (only in dev mode)
 if (process.env.NODE_ENV !== 'production') {

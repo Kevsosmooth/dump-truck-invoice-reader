@@ -48,7 +48,8 @@
       "mcp__supabase__search_docs",
       "mcp__supabase__execute_sql",
       "Bash(npm install:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "mcp__azure__azmcp-monitor-metrics-query"
     ],
     "deny": []
   },

@@ -18,6 +18,12 @@ router.post('/login', (req, res, next) => {
     }
 
     // Generate admin JWT token
+    const jwtSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET;
+    
+    if (!jwtSecret) {
+      return res.status(500).json({ error: 'Authentication configuration error' });
+    }
+    
     const token = jwt.sign(
       { 
         userId: user.id,
@@ -25,7 +31,7 @@ router.post('/login', (req, res, next) => {
         role: user.role,
         type: 'admin' 
       },
-      process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: process.env.ADMIN_SESSION_TIMEOUT || '2h' }
     );
 
@@ -80,9 +86,9 @@ router.get('/google/callback', async (req, res) => {
       return res.redirect('http://localhost:5174/login?error=auth_failed');
     }
     
-    // Fetch user details
+    // Fetch user details (convert string ID to integer)
     const user = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: parseInt(userId, 10) }
     });
     
     // Check if user has admin role
@@ -96,6 +102,20 @@ router.get('/google/callback', async (req, res) => {
     }
 
       // Generate admin JWT token
+      const jwtSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET;
+      
+      console.log('Admin JWT Debug:', {
+        hasAdminSecret: !!process.env.ADMIN_JWT_SECRET,
+        hasJwtSecret: !!process.env.JWT_SECRET,
+        hasSessionSecret: !!process.env.SESSION_SECRET,
+        finalSecret: !!jwtSecret
+      });
+      
+      if (!jwtSecret) {
+        console.error('No JWT secret found. Please set JWT_SECRET or SESSION_SECRET in .env file');
+        return res.redirect('http://localhost:5174/login?error=auth_error');
+      }
+      
       const token = jwt.sign(
         { 
           userId: user.id,
@@ -103,7 +123,7 @@ router.get('/google/callback', async (req, res) => {
           role: user.role,
           type: 'admin' 
         },
-        process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET,
+        jwtSecret,
         { expiresIn: process.env.ADMIN_SESSION_TIMEOUT || '2h' }
       );
 
@@ -180,6 +200,12 @@ router.get('/me', authenticateAdmin, (req, res) => {
 // Refresh admin token
 router.post('/refresh', authenticateAdmin, (req, res) => {
   // Generate new token
+  const jwtSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET;
+  
+  if (!jwtSecret) {
+    return res.status(500).json({ error: 'Authentication configuration error' });
+  }
+  
   const token = jwt.sign(
     { 
       userId: req.admin.id,
@@ -187,7 +213,7 @@ router.post('/refresh', authenticateAdmin, (req, res) => {
       role: req.admin.role,
       type: 'admin' 
     },
-    process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET,
+    jwtSecret,
     { expiresIn: process.env.ADMIN_SESSION_TIMEOUT || '2h' }
   );
 
