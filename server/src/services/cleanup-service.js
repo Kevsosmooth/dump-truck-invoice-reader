@@ -1,55 +1,33 @@
 import { PrismaClient } from '@prisma/client';
-import { BlobServiceClient } from '@azure/storage-blob';
+import { deleteBlobsByPrefix } from './azure-storage.js';
 import cron from 'node-cron';
 
 const prisma = new PrismaClient();
 
-// Azure Storage configuration
-const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
-
-// Initialize blob service client
-let blobServiceClient;
-let containerClient;
-
-if (connectionString) {
-  blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-  containerClient = blobServiceClient.getContainerClient(containerName);
-}
+// No need for separate blob client - using centralized azure-storage service
 
 /**
  * Delete all blobs associated with a session
  * @param {string} sessionId - The session ID to cleanup blobs for
+ * @param {string} blobPrefix - The blob prefix for the session (e.g., users/123/sessions/sessionId/)
  * @returns {Promise<number>} - Number of blobs deleted
  */
-export async function cleanupSessionBlobs(sessionId) {
-  if (!containerClient) {
-    console.warn('Azure Storage not configured, skipping blob cleanup');
-    return 0;
-  }
-
-  let deletedCount = 0;
-
+export async function cleanupSessionBlobs(sessionId, blobPrefix) {
   try {
-    // List all blobs with the session prefix
-    const blobs = containerClient.listBlobsFlat({ prefix: `${sessionId}/` });
-
-    for await (const blob of blobs) {
-      try {
-        await containerClient.deleteBlob(blob.name);
-        deletedCount++;
-        console.log(`Deleted blob: ${blob.name}`);
-      } catch (error) {
-        console.error(`Failed to delete blob ${blob.name}:`, error.message);
-      }
+    if (!blobPrefix) {
+      console.warn(`No blob prefix found for session ${sessionId}, skipping blob cleanup`);
+      return 0;
     }
 
+    // Use the centralized deleteBlobsByPrefix function which handles environment prefixes
+    const deletedCount = await deleteBlobsByPrefix(blobPrefix);
     console.log(`Deleted ${deletedCount} blobs for session ${sessionId}`);
+    
+    return deletedCount;
   } catch (error) {
     console.error(`Error cleaning up blobs for session ${sessionId}:`, error.message);
+    return 0;
   }
-
-  return deletedCount;
 }
 
 /**
@@ -126,7 +104,7 @@ export async function cleanupExpiredSessions(hoursThreshold = 24) {
         });
 
         // Clean up Azure blobs for this session
-        const blobsDeleted = await cleanupSessionBlobs(session.id);
+        const blobsDeleted = await cleanupSessionBlobs(session.id, session.blobPrefix);
         stats.blobsDeleted += blobsDeleted;
 
         console.log(`Expired session ${session.id}: ${session.jobs.length} jobs, ${blobsDeleted} blobs deleted`);
@@ -138,30 +116,15 @@ export async function cleanupExpiredSessions(hoursThreshold = 24) {
     }
 
     // Also handle expired authentication sessions
-    const expiredAuthSessions = await prisma.session.findMany({
+    const expiredAuthSessions = await prisma.session.deleteMany({
       where: {
-        createdAt: {
-          lt: expirationDate
-        },
-        status: {
-          not: 'EXPIRED'
+        expiresAt: {
+          lt: new Date()
         }
       }
     });
 
-    for (const authSession of expiredAuthSessions) {
-      try {
-        await prisma.session.update({
-          where: { id: authSession.id },
-          data: {
-            status: 'EXPIRED',
-            updatedAt: new Date()
-          }
-        });
-      } catch (error) {
-        console.error(`Failed to expire auth session ${authSession.id}:`, error.message);
-      }
-    }
+    console.log(`Deleted ${expiredAuthSessions.count} expired authentication sessions`);
 
     // Log cleanup summary
     const duration = Date.now() - startTime;

@@ -3,7 +3,7 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../index.js';
 import { processDocumentBuffer } from '../services/azure-document-ai.js';
-import { uploadToBlob, generateSasUrl, downloadBlob, deleteBlobsByPrefix } from '../services/azure-storage.js';
+import { uploadToBlob, generateSasUrl, downloadBlob, deleteBlobsByPrefix, extractBlobPath } from '../services/azure-storage.js';
 import { splitPDF, countPages, getPDFInfo } from '../services/pdf-splitter.js';
 // import { documentProcessingQueue } from '../services/queue.js'; // Not using Redis/Bull
 import { rateLimiter, waitForToken } from '../services/rate-limiter.js';
@@ -479,11 +479,8 @@ router.get('/session/:sessionId/download', authenticateToken, async (req, res) =
     for (const job of session.jobs) {
       if (job.processedFileUrl && job.newFileName) {
         try {
-          // Extract the full blob path from the URL
-          const url = new URL(job.processedFileUrl);
-          const pathParts = url.pathname.split('/');
-          // Remove the container name (first part after /) and decode
-          const blobPath = pathParts.slice(2).map(part => decodeURIComponent(part)).join('/');
+          // Extract the blob path from the URL
+          const blobPath = extractBlobPath(job.processedFileUrl);
           
           console.log(`Downloading processed file from: ${blobPath}`);
           const fileBuffer = await downloadBlob(blobPath);
@@ -499,9 +496,7 @@ router.get('/session/:sessionId/download', authenticateToken, async (req, res) =
       } else if (job.blobUrl && job.extractedFields) {
         // Fallback: If no processed file, include the original
         try {
-          const url = new URL(job.blobUrl);
-          const pathParts = url.pathname.split('/');
-          const blobPath = pathParts.slice(2).map(part => decodeURIComponent(part)).join('/');
+          const blobPath = extractBlobPath(job.blobUrl);
           
           console.log(`No processed file found, using original from: ${blobPath}`);
           const fileBuffer = await downloadBlob(blobPath);
@@ -581,7 +576,7 @@ router.get('/job/:id', authenticateToken, async (req, res) => {
 
     // Generate SAS URL if needed
     if (job.processedFileUrl && (!job.sasUrl || job.sasExpiresAt < new Date())) {
-      const blobPath = job.processedFileUrl.split('/').slice(-2).join('/');
+      const blobPath = extractBlobPath(job.processedFileUrl);
       const { sasUrl, expiresAt } = await generateSasUrl(blobPath, 24);
       
       await prisma.job.update({

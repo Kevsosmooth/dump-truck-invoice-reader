@@ -7,6 +7,10 @@ dotenv.config();
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
 const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'documents';
 
+// Determine environment prefix
+const environment = process.env.NODE_ENV || 'development';
+const environmentPrefix = environment === 'production' ? 'production/' : 'development/';
+
 // Extract account name and key from connection string if needed
 let accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
 let accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
@@ -66,7 +70,9 @@ export async function uploadToBlob(buffer, blobPath, metadata = {}) {
   }
 
   try {
-    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    // Prepend environment prefix to all paths
+    const fullBlobPath = environmentPrefix + blobPath;
+    const blockBlobClient = containerClient.getBlockBlobClient(fullBlobPath);
     
     // Upload with metadata
     const uploadOptions = {
@@ -80,7 +86,7 @@ export async function uploadToBlob(buffer, blobPath, metadata = {}) {
     
     return {
       blobUrl: blockBlobClient.url,
-      blobName: blobPath
+      blobName: fullBlobPath
     };
   } catch (error) {
     console.error('Error uploading to blob:', error);
@@ -101,7 +107,9 @@ export async function generateSasUrl(blobName, expiryHours = 24, permissions = '
   }
 
   try {
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    // If blobName doesn't already have environment prefix, add it
+    const fullBlobName = blobName.startsWith(environmentPrefix) ? blobName : environmentPrefix + blobName;
+    const blockBlobClient = containerClient.getBlockBlobClient(fullBlobName);
     
     // Calculate expiry time
     const startsOn = new Date();
@@ -111,7 +119,7 @@ export async function generateSasUrl(blobName, expiryHours = 24, permissions = '
     // Generate SAS token with additional parameters for Azure services
     const sasOptions = {
       containerName,
-      blobName,
+      blobName: fullBlobName,
       permissions: BlobSASPermissions.parse(permissions),
       startsOn,
       expiresOn,
@@ -142,7 +150,9 @@ export async function deleteBlob(blobName) {
   }
 
   try {
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    // If blobName doesn't already have environment prefix, add it
+    const fullBlobName = blobName.startsWith(environmentPrefix) ? blobName : environmentPrefix + blobName;
+    const blockBlobClient = containerClient.getBlockBlobClient(fullBlobName);
     await blockBlobClient.deleteIfExists();
   } catch (error) {
     console.error('Error deleting blob:', error);
@@ -163,8 +173,10 @@ export async function deleteBlobsByPrefix(prefix) {
   let deletedCount = 0;
   
   try {
+    // Add environment prefix
+    const fullPrefix = environmentPrefix + prefix;
     // List all blobs with the prefix
-    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+    for await (const blob of containerClient.listBlobsFlat({ prefix: fullPrefix })) {
       await deleteBlob(blob.name);
       deletedCount++;
     }
@@ -187,7 +199,9 @@ export async function blobExists(blobName) {
   }
 
   try {
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    // If blobName doesn't already have environment prefix, add it
+    const fullBlobName = blobName.startsWith(environmentPrefix) ? blobName : environmentPrefix + blobName;
+    const blockBlobClient = containerClient.getBlockBlobClient(fullBlobName);
     return await blockBlobClient.exists();
   } catch (error) {
     console.error('Error checking blob existence:', error);
@@ -206,7 +220,9 @@ export async function downloadBlob(blobName) {
   }
 
   try {
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    // If blobName doesn't already have environment prefix, add it
+    const fullBlobName = blobName.startsWith(environmentPrefix) ? blobName : environmentPrefix + blobName;
+    const blockBlobClient = containerClient.getBlockBlobClient(fullBlobName);
     const downloadResponse = await blockBlobClient.download();
     
     const chunks = [];
@@ -234,7 +250,9 @@ export async function listBlobsByPrefix(prefix) {
   const blobs = [];
   
   try {
-    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+    // Add environment prefix
+    const fullPrefix = environmentPrefix + prefix;
+    for await (const blob of containerClient.listBlobsFlat({ prefix: fullPrefix })) {
       blobs.push({
         name: blob.name,
         size: blob.properties.contentLength,
@@ -248,4 +266,39 @@ export async function listBlobsByPrefix(prefix) {
     console.error('Error listing blobs:', error);
     throw error;
   }
+}
+
+/**
+ * Extract blob path from a full URL, removing container and environment prefix
+ * @param {string} blobUrl - Full blob URL
+ * @returns {string} The blob path without container and environment prefix
+ */
+export function extractBlobPath(blobUrl) {
+  try {
+    const url = new URL(blobUrl);
+    const pathParts = url.pathname.split('/');
+    // Remove the container name (first part after /)
+    const pathWithoutContainer = pathParts.slice(2).join('/');
+    
+    // Decode URL encoding
+    const decodedPath = decodeURIComponent(pathWithoutContainer);
+    
+    // Remove environment prefix if present
+    if (decodedPath.startsWith(environmentPrefix)) {
+      return decodedPath.slice(environmentPrefix.length);
+    }
+    
+    return decodedPath;
+  } catch (error) {
+    console.error('Error extracting blob path:', error);
+    return blobUrl;
+  }
+}
+
+/**
+ * Get current environment prefix
+ * @returns {string} The environment prefix (e.g., 'production/' or 'development/')
+ */
+export function getEnvironmentPrefix() {
+  return environmentPrefix;
 }

@@ -1,4 +1,4 @@
-import { uploadToBlob, downloadBlob } from './azure-storage.js';
+import { uploadToBlob, downloadBlob, extractBlobPath } from './azure-storage.js';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -126,13 +126,8 @@ export async function postProcessJob(jobId) {
     const session = job.session;
     const processedBlobPath = `${session.blobPrefix}processed/${newFileName}`;
     
-    // Extract blob path from URL and decode it
-    // The blobUrl might be something like: https://storage.blob.core.windows.net/documents/users/1/sessions/uuid/originals/filename.pdf
-    const url = new URL(job.blobUrl);
-    const pathParts = url.pathname.split('/');
-    // Remove the container name (first part after /) and decode each part
-    const decodedParts = pathParts.slice(2).map(part => decodeURIComponent(part));
-    const blobPath = decodedParts.join('/');
+    // Extract blob path from URL using helper function
+    const blobPath = extractBlobPath(job.blobUrl);
     
     console.log(`Downloading from blob path: ${blobPath}`);
     

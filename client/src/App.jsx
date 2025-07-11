@@ -800,29 +800,29 @@ function App() {
 
       {/* Header */}
       <header className="relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-md shadow-sm border-b border-gray-100 dark:border-gray-800">
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-14 sm:h-16">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-              <div className="p-1.5 sm:p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex-shrink-0">
-                <FileCheck className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+        <div className="w-full px-4 tablet:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-14 tablet:h-16">
+            <div className="flex items-center gap-2 tablet:gap-3 min-w-0 flex-1">
+              <div className="p-1.5 tablet:p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex-shrink-0">
+                <FileCheck className="h-5 w-5 tablet:h-6 tablet:w-6 text-white" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent truncate">
+                <h1 className="text-base tablet:text-lg desktop:text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent truncate">
                   Dump Truck Invoice Reader
                 </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">Automated Document Processing</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 hidden tablet:block">Automated Document Processing</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-              <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800 transition-all duration-300">
-                <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">{user?.credits || 0}</span>
-                <span className="hidden sm:inline text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300">Credits</span>
+            <div className="flex items-center gap-2 tablet:gap-3 desktop:gap-4 flex-shrink-0">
+              <div className="flex items-center gap-1 tablet:gap-2 px-3 tablet:px-4 py-1.5 tablet:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800 transition-all duration-300">
+                <Zap className="h-3.5 w-3.5 tablet:h-4 tablet:w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs tablet:text-sm font-semibold text-emerald-700 dark:text-emerald-300">{user?.credits || 0}</span>
+                <span className="hidden tablet:inline text-xs tablet:text-sm font-semibold text-emerald-700 dark:text-emerald-300">Credits</span>
               </div>
               <Button 
                 variant="outline" 
                 size="icon" 
-                className="h-8 w-8 sm:h-9 sm:w-9 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" 
+                className="h-8 w-8 tablet:h-9 tablet:w-9 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" 
                 onClick={logout}
                 title="Sign Out"
               >
@@ -836,7 +836,7 @@ function App() {
       {/* Main Content */}
       <main className="relative w-full px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 lg:mb-8">
           <StatCard
             icon={<TrendingUp className="h-5 w-5" />}
             title="Success Rate"
@@ -870,9 +870,9 @@ function App() {
         {/* Ongoing Training Section */}
         {/* <OngoingTraining /> */}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 tablet:grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 max-w-7xl mx-auto">
           {/* Upload Section */}
-          <div className="lg:col-span-2 xl:col-span-3 space-y-4 sm:space-y-6">
+          <div className="tablet:col-span-1 lg:col-span-2 xl:col-span-3 space-y-4 sm:space-y-6">
             <Card className="overflow-hidden border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
               <CardHeader className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white pb-20">
                 <div className="flex items-center justify-between">
@@ -1109,30 +1109,30 @@ function App() {
                   </div>
                 ) : (
                   <>
-                    {/* Sessions Table - Desktop */}
+                    {/* Sessions Table - Desktop and Tablet */}
                     <div className="hidden sm:block rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-900">
                             <tr>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Session ID
                               </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">
                                 Created
                               </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                                 Expires
                               </th>
-                              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Pages
                               </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Status
                               </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[140px]">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px] md:min-w-[140px] hidden md:table-cell">
                                 Progress
                               </th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
                                 Actions
                               </th>
                             </tr>
@@ -1160,44 +1160,60 @@ function App() {
                                   
                                   return (
                                     <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                      <td className="px-6 py-4 text-sm font-mono text-gray-900 dark:text-gray-100">
-                                        {session.id.slice(0, 8)}...
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm font-mono text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                        {session.id.slice(0, 6)}...
                                       </td>
-                                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
                                         {formatTimeAgo(session.createdAt)}
                                       </td>
-                                      <td className={`px-6 py-4 text-sm ${expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
+                                      <td className={`px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm hidden lg:table-cell ${expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
                                         {timeRemaining}
                                       </td>
-                                      <td className="px-6 py-4 text-sm text-center text-gray-900 dark:text-gray-100">
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm text-center text-gray-900 dark:text-gray-100">
                                         {session.totalPages || session.totalFiles}
                                       </td>
-                                      <td className="px-6 py-4">
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4">
+                                        <div className="space-y-1">
+                                          <span className={`inline-flex items-center gap-1 px-1.5 tablet:px-2 py-0.5 tablet:py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                                            {session.status === 'PROCESSING' && (
+                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                            )}
+                                            {expired ? 'EXPIRED' : session.status}
+                                          </span>
+                                          {/* Show progress bar under status on tablets */}
                                           {session.status === 'PROCESSING' && (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            <div className="flex items-center lg:hidden">
+                                              <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mr-1">
+                                                <div 
+                                                  className="bg-indigo-600 h-1.5 rounded-full" 
+                                                  style={{ width: `${progress}%` }}
+                                                />
+                                              </div>
+                                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                {progress}%
+                                              </span>
+                                            </div>
                                           )}
-                                          {expired ? 'EXPIRED' : session.status}
-                                        </span>
+                                        </div>
                                       </td>
-                                      <td className="px-6 py-4">
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 hidden md:table-cell">
                                         <div className="flex items-center">
-                                          <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
+                                          <div className="w-24 md:w-32 lg:w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
                                             <div 
-                                              className="bg-indigo-600 h-2 rounded-full" 
+                                              className="bg-indigo-600 h-2 rounded-full transition-all duration-300" 
                                               style={{ width: `${progress}%` }}
                                             />
                                           </div>
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                                          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
                                             {progress}%
                                           </span>
                                         </div>
                                       </td>
-                                      <td className="px-6 py-4 text-right">
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-right whitespace-nowrap">
                                         {session.status === 'COMPLETED' && (
                                           <Button
-                                            size="sm"
-                                            variant={expired ? "ghost" : "ghost"}
+                                            size="icon"
+                                            variant={expired ? "ghost" : "outline"}
                                             onClick={() => {
                                               if (expired) {
                                                 alert('This session has expired. Files are no longer available for download.');
@@ -1206,14 +1222,15 @@ function App() {
                                               }
                                             }}
                                             disabled={expired}
-                                            className={`text-xs ${
+                                            className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
                                               expired 
                                                 ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
                                                 : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
                                             }`}
+                                            title={expired ? 'Session expired' : 'Download results'}
                                           >
-                                            <Download className="h-3 w-3 mr-1" />
-                                            {expired ? 'Expired' : 'Download'}
+                                            <Download className="h-3 w-3 md:mr-1" />
+                                            <span className="hidden md:inline">{expired ? 'Expired' : 'Download'}</span>
                                           </Button>
                                         )}
                                       </td>
@@ -1222,9 +1239,9 @@ function App() {
                                 })}
                             </tbody>
                           </table>
-                      </div>
+                    </div>
                     
-                    {/* Sessions Cards - Mobile */}
+                    {/* Sessions Cards - Mobile and Small Tablets */}
                     <div className="sm:hidden space-y-3">
                       {userSessions
                         .map((session) => {
@@ -1389,7 +1406,7 @@ function App() {
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="space-y-4 tablet:space-y-5 desktop:space-y-6">
             {/* Session Progress */}
             {currentSession && sessionProgress.status === 'processing' ? (
               <Card className="border-0 shadow-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
@@ -1460,10 +1477,10 @@ function App() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-5xl font-bold mb-2">
+                  <div className="text-3xl tablet:text-4xl desktop:text-5xl font-bold mb-2">
                     {user?.credits || 0}
                   </div>
-                  <p className="text-emerald-100 mb-6">
+                  <p className="text-sm tablet:text-base text-emerald-100 mb-4 tablet:mb-5 desktop:mb-6">
                     Process up to {user?.credits || 0} more pages
                   </p>
                   <Button className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold">
@@ -1554,9 +1571,9 @@ function StatCard({ icon, title, value, trend, color }) {
 
   return (
     <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className={`p-3 rounded-lg ${bgColorClasses[color]}`}>
+      <CardContent className="p-3 xs:p-4 tablet:p-5 desktop:p-6">
+        <div className="flex items-center justify-between mb-2 xs:mb-3 tablet:mb-4">
+          <div className={`p-1.5 xs:p-2 tablet:p-2.5 desktop:p-3 rounded-lg ${bgColorClasses[color]}`}>
             <div className={iconColorClasses[color]}>
               {icon}
             </div>
@@ -1565,8 +1582,8 @@ function StatCard({ icon, title, value, trend, color }) {
             {trend}
           </Badge>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+        <p className="text-xs xs:text-sm text-gray-600 dark:text-gray-400">{title}</p>
+        <p className="text-lg xs:text-xl tablet:text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
       </CardContent>
     </Card>
   );

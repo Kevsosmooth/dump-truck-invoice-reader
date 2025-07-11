@@ -4,6 +4,7 @@ import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions }
 import { PrismaClient } from '@prisma/client';
 import path from 'path';
 import { Readable } from 'stream';
+import { extractBlobPath } from './azure-storage.js';
 
 // Initialize Prisma client
 const prisma = new PrismaClient();
@@ -95,22 +96,10 @@ async function generateZipForSession(sessionId) {
  */
 async function downloadPdfFromBlob(pdfUrl) {
   try {
-    // Extract blob name from URL
-    const urlParts = new URL(pdfUrl);
-    const pathParts = urlParts.pathname.split('/');
-    const blobName = pathParts.slice(2).join('/'); // Remove container name
-
-    const containerClient = blobServiceClient.getContainerClient(containerName);
-    const blobClient = containerClient.getBlobClient(blobName);
-    
-    const downloadResponse = await blobClient.download();
-    const chunks = [];
-    
-    for await (const chunk of downloadResponse.readableStreamBody) {
-      chunks.push(chunk);
-    }
-    
-    return Buffer.concat(chunks);
+    // Use the centralized azure-storage service which handles environment prefixes
+    const { downloadBlob } = await import('./azure-storage.js');
+    const blobPath = extractBlobPath(pdfUrl);
+    return await downloadBlob(blobPath);
   } catch (error) {
     console.error('Error downloading PDF:', error);
     throw error;

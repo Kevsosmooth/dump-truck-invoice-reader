@@ -1,8 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import { processDocumentFromUrl } from './azure-document-ai.js';
-import { generateSasUrl } from './azure-storage.js';
+import { generateSasUrl, extractBlobPath } from './azure-storage.js';
 import { waitForToken } from './rate-limiter.js';
 import { postProcessJob, postProcessSession } from './post-processor.js';
+import { cleanupIntermediateFiles } from './storage-optimizer.js';
 
 const prisma = new PrismaClient();
 
@@ -29,11 +30,7 @@ export async function processDocumentSync(jobData) {
     });
 
     // Extract blob path from URL
-    // Example URL: https://dumptruckinvoicereader.blob.core.windows.net/documents/users/1/sessions/uuid/originals/file.pdf
-    const url = new URL(job.blobUrl);
-    const pathParts = url.pathname.split('/');
-    // Remove the container name (first part after /)
-    const blobPath = decodeURIComponent(pathParts.slice(2).join('/'));
+    const blobPath = extractBlobPath(job.blobUrl);
     
     console.log(`[AZURE] Generating SAS URL for: ${blobPath}`);
     
@@ -220,4 +217,19 @@ export async function processSessionJobs(sessionId) {
   
   // Post-process the entire session after all jobs are done
   await postProcessSession(sessionId);
+  
+  // Clean up intermediate files to save storage space
+  if (failedJobs === 0 && processedCount === jobs.length) {
+    // Add a small delay to ensure post-processing is fully complete
+    console.log(`[STORAGE] Scheduling cleanup for completed session ${sessionId}`);
+    setTimeout(async () => {
+      try {
+        console.log(`[STORAGE] Starting cleanup for session ${sessionId}`);
+        const cleanupResult = await cleanupIntermediateFiles(sessionId);
+        console.log(`[STORAGE] Cleanup complete: deleted ${cleanupResult.deleted} files, kept ${cleanupResult.kept} files`);
+      } catch (error) {
+        console.error(`[STORAGE] Cleanup failed for session ${sessionId}:`, error);
+      }
+    }, 5000); // 5 second delay
+  }
 }

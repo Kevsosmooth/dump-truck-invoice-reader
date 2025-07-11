@@ -4,6 +4,7 @@ import { deleteBlobsByPrefix } from '../services/azure-storage.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { postProcessJob, postProcessSession } from '../services/post-processor.js';
 import { debugSessionBlobs } from '../utils/debug-blobs.js';
+import { cleanupIntermediateFiles, aggressiveCleanup } from '../services/storage-optimizer.js';
 
 const router = express.Router();
 
@@ -256,6 +257,131 @@ router.post('/fix-session/:sessionId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fixing session:', error);
     res.status(500).json({ error: 'Failed to fix session' });
+  }
+});
+
+// Storage cleanup endpoints
+router.post('/cleanup-storage/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { aggressive = false, force = false } = req.body;
+    
+    console.log(`[DEV] Storage cleanup requested for session ${sessionId} (aggressive: ${aggressive}, force: ${force})`);
+    
+    // Verify session exists
+    const session = await prisma.processingSession.findUnique({
+      where: { id: sessionId },
+      include: { jobs: true }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Only check status if not forcing
+    if (!force && session.status !== 'COMPLETED') {
+      return res.status(400).json({ 
+        error: 'Session must be completed before cleanup (use force: true to override)',
+        status: session.status 
+      });
+    }
+    
+    let result;
+    if (aggressive) {
+      result = await aggressiveCleanup(sessionId);
+    } else {
+      result = await cleanupIntermediateFiles(sessionId);
+    }
+    
+    res.json({
+      success: true,
+      sessionId,
+      cleanupType: aggressive ? 'aggressive' : 'intermediate',
+      filesDeleted: result.deleted,
+      filesKept: result.kept,
+      estimatedSpaceSaved: `~${result.deleted * 2}MB`
+    });
+    
+  } catch (error) {
+    console.error('Storage cleanup error:', error);
+    res.status(500).json({ error: 'Storage cleanup failed' });
+  }
+});
+
+// Get storage statistics for a session
+router.get('/storage-stats/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const session = await prisma.processingSession.findUnique({
+      where: { id: sessionId },
+      include: { jobs: true }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Import listBlobsByPrefix
+    const { listBlobsByPrefix } = await import('../services/azure-storage.js');
+    
+    // Get all blobs for this session
+    const allBlobs = await listBlobsByPrefix(session.blobPrefix);
+    
+    // Categorize blobs
+    const stats = {
+      total: allBlobs.length,
+      totalSize: 0,
+      byCategory: {
+        originals: { count: 0, size: 0 },
+        pages: { count: 0, size: 0 },
+        processed: { count: 0, size: 0 },
+        other: { count: 0, size: 0 }
+      },
+      files: []
+    };
+    
+    allBlobs.forEach(blob => {
+      stats.totalSize += blob.size;
+      stats.files.push({
+        name: blob.name,
+        size: blob.size,
+        sizeFormatted: `${(blob.size / 1024 / 1024).toFixed(2)}MB`
+      });
+      
+      if (blob.name.includes('/originals/')) {
+        stats.byCategory.originals.count++;
+        stats.byCategory.originals.size += blob.size;
+      } else if (blob.name.includes('/pages/')) {
+        stats.byCategory.pages.count++;
+        stats.byCategory.pages.size += blob.size;
+      } else if (blob.name.includes('/processed/')) {
+        stats.byCategory.processed.count++;
+        stats.byCategory.processed.size += blob.size;
+      } else {
+        stats.byCategory.other.count++;
+        stats.byCategory.other.size += blob.size;
+      }
+    });
+    
+    // Format sizes
+    Object.keys(stats.byCategory).forEach(category => {
+      stats.byCategory[category].sizeFormatted = 
+        `${(stats.byCategory[category].size / 1024 / 1024).toFixed(2)}MB`;
+    });
+    
+    stats.totalSizeFormatted = `${(stats.totalSize / 1024 / 1024).toFixed(2)}MB`;
+    stats.potentialSavings = `${((stats.byCategory.originals.size + stats.byCategory.pages.size) / 1024 / 1024).toFixed(2)}MB`;
+    
+    res.json({
+      sessionId,
+      status: session.status,
+      storageStats: stats
+    });
+    
+  } catch (error) {
+    console.error('Error getting storage stats:', error);
+    res.status(500).json({ error: 'Failed to get storage statistics' });
   }
 });
 
