@@ -1,0 +1,12 @@
+{
+  "name": "dump-truck-invoice-reader",
+  "version": "1.0.0",
+  "description": "Invoice processing application",
+  "scripts": {
+    "build": "./build.sh",
+    "start": "./start.sh"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
