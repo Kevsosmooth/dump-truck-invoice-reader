@@ -155,6 +155,14 @@ async function startServer() {
     // Test database connection
     await prisma.$connect();
     console.log('✅ Database connected successfully');
+    
+    // Initialize 24-hour cleanup scheduler
+    if (process.env.ENABLE_AUTO_CLEANUP !== 'false') {
+      const { scheduleCleanup } = await import('./services/cleanup-service.js');
+      // Run cleanup daily at 2 AM
+      scheduleCleanup('0 2 * * *', 24);
+      console.log('✅ 24-hour cleanup scheduler initialized (runs daily at 2 AM)');
+    }
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
