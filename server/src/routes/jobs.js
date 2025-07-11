@@ -12,6 +12,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import archiver from 'archiver';
 import ExcelJS from 'exceljs';
+import sessionCleanupManager from '../services/session-cleanup-manager.js';
 
 const router = express.Router();
 
@@ -113,6 +114,11 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
       status: session.status,
       totalFiles: session.totalFiles
     });
+
+    // Schedule automatic cleanup for this session
+    sessionCleanupManager.scheduleCleanup(sessionId, expiresAt);
+    console.log(`[CLEANUP] Scheduled automatic cleanup for session ${sessionId} at ${expiresAt.toISOString()}`);
+    console.log(`[CLEANUP] Session will be cleaned up in 24 hours`);
 
     // Upload files to Azure Blob Storage and create jobs
     const jobs = [];
@@ -610,7 +616,13 @@ router.get('/sessions', authenticateToken, async (req, res) => {
     console.log(`[Backend] Fetching sessions for user ${userId} with status: ${status || 'all'}`);
 
     // Build where clause
-    const where = { userId };
+    const where = { 
+      userId,
+      // Filter out expired sessions - only show sessions that haven't expired yet
+      expiresAt: {
+        gt: new Date() // Greater than current time means not expired
+      }
+    };
     
     // Add status filter if provided
     if (status && status !== 'all') {

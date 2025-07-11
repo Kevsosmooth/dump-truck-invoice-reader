@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { authenticateAdmin } from '../middleware/admin-auth.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Apply authentication and admin middleware to all routes
-router.use(authenticateToken);
-router.use(requireAdmin);
+// Apply admin authentication middleware to all routes
+router.use(authenticateAdmin);
 
 // Dashboard stats
 router.get('/stats', async (req, res) => {
@@ -124,7 +123,7 @@ router.patch('/users/:id', async (req, res) => {
     // Log the action
     await prisma.auditLog.create({
       data: {
-        userId: req.user.id,
+        userId: req.admin.id,
         eventType: 'USER_UPDATED',
         eventData: {
           targetUserId: user.id,

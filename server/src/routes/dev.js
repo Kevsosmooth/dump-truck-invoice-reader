@@ -5,6 +5,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { postProcessJob, postProcessSession } from '../services/post-processor.js';
 import { debugSessionBlobs } from '../utils/debug-blobs.js';
 import { cleanupIntermediateFiles, aggressiveCleanup } from '../services/storage-optimizer.js';
+import sessionCleanupManager from '../services/session-cleanup-manager.js';
 
 const router = express.Router();
 
@@ -382,6 +383,70 @@ router.get('/storage-stats/:sessionId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error getting storage stats:', error);
     res.status(500).json({ error: 'Failed to get storage statistics' });
+  }
+});
+
+// Development only - speed up session expiration for testing
+router.post('/speed-up-expiration/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    // Only allow in development
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'This endpoint is only available in development' });
+    }
+
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify session belongs to user and exists
+    const session = await prisma.processingSession.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        expiresAt: true,
+      }
+    });
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Check if session is already expired
+    if (session.status === 'EXPIRED') {
+      return res.status(400).json({ 
+        error: 'Session is already expired',
+        status: session.status
+      });
+    }
+    
+    // Calculate new expiration time (1 minute from now)
+    const newExpiresAt = new Date(Date.now() + 60 * 1000); // 1 minute
+    
+    console.log(`[DEV] Speeding up expiration for session ${sessionId}`);
+    console.log(`  - Current expiration: ${session.expiresAt.toISOString()}`);
+    console.log(`  - New expiration: ${newExpiresAt.toISOString()}`);
+    
+    // Use sessionCleanupManager to update expiration and reschedule cleanup
+    await sessionCleanupManager.speedUpExpiration(sessionId, newExpiresAt);
+    
+    res.json({ 
+      success: true, 
+      message: `Session expiration updated to 1 minute from now`,
+      sessionId,
+      previousExpiresAt: session.expiresAt.toISOString(),
+      newExpiresAt: newExpiresAt.toISOString(),
+      expiresInSeconds: 60
+    });
+
+  } catch (error) {
+    console.error('Error speeding up session expiration:', error);
+    res.status(500).json({ 
+      error: 'Failed to speed up session expiration',
+      details: error.message 
+    });
   }
 });
 

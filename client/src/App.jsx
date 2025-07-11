@@ -29,7 +29,8 @@ import {
   BarChart3,
   Brain,
   FileWarning,
-  LogOut
+  LogOut,
+  FastForward
 } from 'lucide-react';
 
 // Helper function to format time ago
@@ -73,6 +74,15 @@ const isSessionExpired = (expiresAt) => {
   return new Date(expiresAt) <= new Date();
 };
 
+// Helper function to check if session is expiring soon (within 5 minutes)
+const isExpiringSoon = (expiresAt) => {
+  if (!expiresAt) return false;
+  const now = new Date();
+  const expiry = new Date(expiresAt);
+  const diffMs = expiry - now;
+  return diffMs > 0 && diffMs <= 5 * 60 * 1000; // 5 minutes
+};
+
 function App() {
   const { user, logout, token, updateCredits } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
@@ -95,6 +105,16 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalSessions, setTotalSessions] = useState(0);
   const sessionsPerPage = 5;
+  
+  // Speed up expiration state
+  const [speedingUpSessions, setSpeedingUpSessions] = useState(new Set());
+  
+  // Real-time expiration tracking
+  const [expiredSessions, setExpiredSessions] = useState(new Set());
+  const [expirationCheckInterval, setExpirationCheckInterval] = useState(null);
+  
+  // Development tier info
+  const [tierInfo, setTierInfo] = useState(null);
 
   // Fetch all user sessions (only called once or on refresh)
   const fetchAllUserSessions = async () => {
@@ -179,6 +199,60 @@ function App() {
       fetchAllUserSessions();
     }
   }, [user, token]);
+  
+  // Fetch tier info in development
+  useEffect(() => {
+    const fetchTierInfo = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/tier-info`);
+        if (response.ok) {
+          const data = await response.json();
+          setTierInfo(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch tier info:', error);
+      }
+    };
+    
+    // Only fetch in development
+    if (import.meta.env.MODE === 'development') {
+      fetchTierInfo();
+    }
+  }, []);
+  
+  // Real-time expiration checking
+  useEffect(() => {
+    // Check for expired sessions every 30 seconds
+    const checkExpiredSessions = () => {
+      const now = new Date();
+      const newExpiredSessions = new Set();
+      
+      // Check all sessions for expiration
+      allUserSessions.forEach(session => {
+        if (new Date(session.expiresAt) <= now) {
+          newExpiredSessions.add(session.id);
+        }
+      });
+      
+      // If any new sessions expired, update state and refresh
+      if (newExpiredSessions.size !== expiredSessions.size) {
+        setExpiredSessions(newExpiredSessions);
+        // Refresh sessions from server to get updated status
+        fetchAllUserSessions();
+      }
+    };
+    
+    // Check immediately
+    checkExpiredSessions();
+    
+    // Set up interval
+    const interval = setInterval(checkExpiredSessions, 30000); // Every 30 seconds
+    setExpirationCheckInterval(interval);
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [allUserSessions, expiredSessions]);
 
   // Apply filters and pagination when they change (client-side only)
   useEffect(() => {
@@ -520,6 +594,38 @@ function App() {
       if (fileInput) {
         fileInput.value = '';
       }
+    }
+  };
+
+  // Speed up session expiration (development only)
+  const speedUpExpiration = async (sessionId) => {
+    if (import.meta.env.MODE === 'production') return;
+    
+    setSpeedingUpSessions(prev => new Set(prev).add(sessionId));
+    
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/dev/speed-up-expiration/${sessionId}`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert(`Session expiration accelerated!\nNew expiry: ${new Date(result.newExpiresAt).toLocaleString()}`);
+        // Refresh sessions to show updated expiration
+        fetchAllUserSessions();
+      } else {
+        alert(`Failed to speed up expiration: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error speeding up expiration:', error);
+      alert('Failed to speed up session expiration');
+    } finally {
+      setSpeedingUpSessions(prev => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
     }
   };
 
@@ -1016,7 +1122,7 @@ function App() {
                     Recent Processing Sessions
                   </CardTitle>
                   {/* Development only - Clear sessions button */}
-                  {process.env.NODE_ENV !== 'production' && userSessions.length > 0 && (
+                  {import.meta.env.MODE !== 'production' && userSessions.length > 0 && (
                     <Button
                       size="sm"
                       variant="destructive"
@@ -1110,8 +1216,8 @@ function App() {
                 ) : (
                   <>
                     {/* Sessions Table - Desktop and Tablet */}
-                    <div className="hidden sm:block rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                      <table className="w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <div className="hidden sm:block rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
+                      <table className="w-full min-w-[800px] divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-900">
                             <tr>
                               <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -1132,7 +1238,7 @@ function App() {
                               <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px] md:min-w-[140px] hidden md:table-cell">
                                 Progress
                               </th>
-                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
+                              <th className="px-3 md:px-4 lg:px-6 py-2 tablet:py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap min-w-[120px]">
                                 Actions
                               </th>
                             </tr>
@@ -1144,6 +1250,7 @@ function App() {
                                     ? Math.round((session.processedPages / session.totalPages) * 100)
                                     : 0;
                                   const expired = isSessionExpired(session.expiresAt);
+                                  const expiringSoon = isExpiringSoon(session.expiresAt);
                                   const timeRemaining = formatTimeRemaining(session.expiresAt);
                                   
                                   const statusColor = expired 
@@ -1158,16 +1265,28 @@ function App() {
                                       'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
                                     }[session.status] || 'text-gray-600 bg-gray-100';
                                   
+                                  // Row highlighting for expiring sessions
+                                  const rowClass = expired 
+                                    ? "opacity-50 bg-gray-50 dark:bg-gray-900/30"
+                                    : expiringSoon 
+                                    ? "bg-amber-50 dark:bg-amber-900/10 border-l-4 border-amber-500"
+                                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50";
+                                  
                                   return (
-                                    <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                    <tr key={session.id} className={rowClass}>
                                       <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm font-mono text-gray-900 dark:text-gray-100 whitespace-nowrap">
                                         {session.id.slice(0, 6)}...
                                       </td>
                                       <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
                                         {formatTimeAgo(session.createdAt)}
                                       </td>
-                                      <td className={`px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm hidden lg:table-cell ${expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
-                                        {timeRemaining}
+                                      <td className={`px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm hidden lg:table-cell ${expired ? 'text-red-500 dark:text-red-400 font-medium' : expiringSoon ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
+                                        <div className="flex items-center gap-1">
+                                          {expiringSoon && !expired && (
+                                            <AlertCircle className="h-3 w-3 text-amber-500" />
+                                          )}
+                                          {timeRemaining}
+                                        </div>
                                       </td>
                                       <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-xs tablet:text-sm text-center text-gray-900 dark:text-gray-100">
                                         {session.totalPages || session.totalFiles}
@@ -1209,30 +1328,52 @@ function App() {
                                           </span>
                                         </div>
                                       </td>
-                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-right whitespace-nowrap">
-                                        {session.status === 'COMPLETED' && (
-                                          <Button
-                                            size="icon"
-                                            variant={expired ? "ghost" : "outline"}
-                                            onClick={() => {
-                                              if (expired) {
-                                                alert('This session has expired. Files are no longer available for download.');
-                                              } else {
-                                                downloadSessionResults(session.id);
-                                              }
-                                            }}
-                                            disabled={expired}
-                                            className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
-                                              expired 
-                                                ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
-                                                : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
-                                            }`}
-                                            title={expired ? 'Session expired' : 'Download results'}
-                                          >
-                                            <Download className="h-3 w-3 md:mr-1" />
-                                            <span className="hidden md:inline">{expired ? 'Expired' : 'Download'}</span>
-                                          </Button>
-                                        )}
+                                      <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4 text-right">
+                                        <div className="flex items-center justify-end gap-1 flex-wrap">
+                                          {session.status === 'COMPLETED' && (
+                                            <Button
+                                              size="icon"
+                                              variant={expired ? "ghost" : "outline"}
+                                              disabled={expired}
+                                              className={expired ? "opacity-50 cursor-not-allowed" : ""}
+                                              title={expired ? "Session expired - files no longer available" : expiringSoon ? "Session expiring soon" : "Download all files"}
+                                              onClick={() => {
+                                                if (expired) {
+                                                  alert('This session has expired. Files are no longer available for download.');
+                                                } else {
+                                                  downloadSessionResults(session.id);
+                                                }
+                                              }}
+                                              disabled={expired}
+                                              className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
+                                                expired 
+                                                  ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
+                                                  : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                                              }`}
+                                              title={expired ? 'Session expired' : 'Download results'}
+                                            >
+                                              <Download className="h-3 w-3 md:mr-1" />
+                                              <span className="hidden md:inline">{expired ? 'Expired' : 'Download'}</span>
+                                            </Button>
+                                          )}
+                                          {import.meta.env.MODE !== 'production' && !expired && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => speedUpExpiration(session.id)}
+                                              disabled={speedingUpSessions.has(session.id)}
+                                              className="flex items-center gap-1 px-2 py-1 text-xs border-amber-300 dark:border-amber-700 text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                                              title="Speed up expiration to 1 minute (Dev only)"
+                                            >
+                                              {speedingUpSessions.has(session.id) ? (
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                              ) : (
+                                                <FastForward className="h-3 w-3" />
+                                              )}
+                                              <span className="hidden lg:inline">Speed</span>
+                                            </Button>
+                                          )}
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -1249,10 +1390,17 @@ function App() {
                             ? Math.round((session.processedPages / session.totalPages) * 100)
                             : 0;
                           const expired = isSessionExpired(session.expiresAt);
+                          const expiringSoon = isExpiringSoon(session.expiresAt);
                           const timeRemaining = formatTimeRemaining(session.expiresAt);
                           
+                          const cardClass = expired 
+                            ? "bg-gray-50 dark:bg-gray-900/30 opacity-50"
+                            : expiringSoon 
+                            ? "bg-amber-50 dark:bg-amber-900/10 border-l-4 border-l-amber-500"
+                            : "bg-white dark:bg-gray-800";
+                          
                           return (
-                            <div key={session.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                            <div key={session.id} className={`${cardClass} rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3`}>
                               <div className="flex items-start justify-between">
                                 <div>
                                   <p className="text-xs text-gray-500 dark:text-gray-400">Session ID</p>
@@ -1285,8 +1433,13 @@ function App() {
                                 </div>
                                 <div>
                                   <p className="text-xs text-gray-500 dark:text-gray-400">Expires</p>
-                                  <p className={expired ? 'text-red-500 dark:text-red-400 font-medium' : 'text-gray-900 dark:text-gray-100'}>
-                                    {timeRemaining}
+                                  <p className={expired ? 'text-red-500 dark:text-red-400 font-medium' : expiringSoon ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-900 dark:text-gray-100'}>
+                                    <span className="flex items-center gap-1">
+                                      {expiringSoon && !expired && (
+                                        <AlertCircle className="h-3 w-3 text-amber-500" />
+                                      )}
+                                      {timeRemaining}
+                                    </span>
                                   </p>
                                 </div>
                               </div>
@@ -1307,26 +1460,40 @@ function App() {
                               </div>
                               
                               {session.status === 'COMPLETED' && (
-                                <Button
-                                  size="sm"
-                                  variant={expired ? "outline" : "default"}
-                                  onClick={() => {
-                                    if (expired) {
-                                      alert('This session has expired. Files are no longer available for download.');
-                                    } else {
-                                      downloadSessionResults(session.id);
-                                    }
-                                  }}
-                                  disabled={expired}
-                                  className={`w-full ${
-                                    expired 
-                                      ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
-                                      : ''
-                                  }`}
-                                >
-                                  <Download className="h-4 w-4 mr-2" />
-                                  {expired ? 'Expired' : 'Download Results'}
-                                </Button>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant={expired ? "outline" : "default"}
+                                    disabled={expired}
+                                    className={`w-full ${expired ? "opacity-50 cursor-not-allowed" : ""}`}
+                                    onClick={() => {
+                                      if (expired) {
+                                        alert('This session has expired. Files are no longer available for download.');
+                                      } else {
+                                        downloadSessionResults(session.id);
+                                      }
+                                    }}
+                                  >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    {expired ? 'Expired' : 'Download Results'}
+                                  </Button>
+                                  {import.meta.env.MODE !== 'production' && !expired && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => speedUpExpiration(session.id)}
+                                      disabled={speedingUpSessions.has(session.id)}
+                                      className="text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                                      title="Speed up expiration (Dev only)"
+                                    >
+                                      {speedingUpSessions.has(session.id) ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <FastForward className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           );
@@ -1483,6 +1650,24 @@ function App() {
                   <p className="text-sm tablet:text-base text-emerald-100 mb-4 tablet:mb-5 desktop:mb-6">
                     Process up to {user?.credits || 0} more pages
                   </p>
+                  {/* Development Tier Info */}
+                  {import.meta.env.MODE === 'development' && tierInfo && (
+                    <div className="mb-4 p-3 bg-emerald-600/30 rounded-lg border border-emerald-400/30">
+                      <div className="text-xs text-emerald-100 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Zap className="h-3 w-3" />
+                          <span>Azure Tier: <span className="font-semibold">{tierInfo.tier}</span></span>
+                        </div>
+                        <div className="text-emerald-100/80">
+                          {tierInfo.tier === 'STANDARD' ? (
+                            <span>Processing up to {tierInfo.maxConcurrent} pages concurrently</span>
+                          ) : (
+                            <span>Processing 1 page at a time (sequential)</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <Button className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold">
                     Upgrade to Pro
                   </Button>

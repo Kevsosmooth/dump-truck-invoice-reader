@@ -19,9 +19,18 @@ export async function cleanupSessionBlobs(sessionId, blobPrefix) {
       return 0;
     }
 
+    // Log the exact prefix being used for deletion
+    console.log(`[CLEANUP] Deleting blobs for session ${sessionId} with prefix: ${blobPrefix}`);
+    
+    // Ensure the prefix ends with the session ID to prevent accidental deletion of other sessions
+    if (!blobPrefix.includes(sessionId)) {
+      console.error(`[CLEANUP] SAFETY CHECK FAILED: Blob prefix '${blobPrefix}' does not contain session ID '${sessionId}'`);
+      throw new Error('Blob prefix does not match session ID - refusing to delete for safety');
+    }
+    
     // Use the centralized deleteBlobsByPrefix function which handles environment prefixes
     const deletedCount = await deleteBlobsByPrefix(blobPrefix);
-    console.log(`Deleted ${deletedCount} blobs for session ${sessionId}`);
+    console.log(`[CLEANUP] Deleted ${deletedCount} blobs for session ${sessionId} (prefix: ${blobPrefix})`);
     
     return deletedCount;
   } catch (error) {

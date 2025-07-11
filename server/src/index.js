@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import session from 'express-session';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import passport from 'passport';
@@ -27,6 +28,7 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.CLIENT_URL,
       'http://localhost:5173',
+      'http://localhost:5174', // Admin dashboard
       'http://localhost:3000',
       // Add your Vercel domains here
       process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
@@ -49,6 +51,18 @@ const corsOptions = {
 // Middleware
 app.use(cors(corsOptions));
 app.use(cookieParser());
+
+// Session middleware for OAuth state tracking
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'admin-dashboard-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 60000 // 1 minute - just for OAuth flow
+  }
+}));
 
 // Apply JSON parser to all routes except multipart uploads
 app.use((req, res, next) => {
@@ -78,11 +92,17 @@ app.get('/', (req, res) => {
         logout: '/auth/logout',
         status: '/auth/status'
       },
+      adminAuth: {
+        login: '/admin/auth/login',
+        logout: '/admin/auth/logout',
+        me: '/admin/auth/me'
+      },
       api: {
         sessions: '/api/sessions',
         models: '/api/models',
         user: '/api/user',
-        jobs: '/api/jobs'
+        jobs: '/api/jobs',
+        admin: '/api/admin/*'
       }
     },
     documentation: 'https://github.com/Kevsosmooth/dump-truck-invoice-reader'
@@ -120,15 +140,20 @@ import jobRoutes from './routes/jobs.js';
 import userRoutes from './routes/user.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
+import adminAuthRoutes from './routes/admin-auth.js';
+import adminAnalyticsRoutes from './routes/admin-analytics.js';
 import modelTrainingRoutes from './routes/model-training.js';
 import modelsRoutes from './routes/models.js';
 import sessionRoutes from './routes/sessions.js';
 import devRoutes from './routes/dev.js';
+import tierInfoRoutes from './routes/tier-info.js';
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/admin/auth', adminAuthRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);
@@ -136,6 +161,11 @@ app.use('/api/sessions', sessionRoutes);
 // Development routes (only in dev mode)
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev', devRoutes);
+  app.use('/api/tier-info', tierInfoRoutes);
+  
+  // Development admin routes
+  const devAdminRoutes = (await import('./routes/dev-admin.js')).default;
+  app.use('/api/dev/admin', devAdminRoutes);
 }
 
 // Error handling middleware
@@ -156,12 +186,20 @@ async function startServer() {
     await prisma.$connect();
     console.log('✅ Database connected successfully');
     
-    // Initialize cleanup scheduler for expired sessions
+    // Import session cleanup manager
+    const sessionCleanupManager = (await import('./services/session-cleanup-manager.js')).default;
+    
+    // Reschedule cleanups for all existing sessions
+    console.log('🔄 Rescheduling cleanups for existing sessions...');
+    await sessionCleanupManager.rescheduleAllSessions();
+    console.log('✅ Session cleanups rescheduled');
+    
+    // Initialize cleanup scheduler for expired sessions (as a fallback)
     if (process.env.ENABLE_AUTO_CLEANUP !== 'false') {
       const { scheduleCleanup } = await import('./services/cleanup-service.js');
       // Run cleanup daily at 2 AM
       scheduleCleanup('0 2 * * *');
-      console.log('✅ Cleanup scheduler initialized (runs daily at 2 AM for expired sessions)');
+      console.log('✅ Cleanup scheduler initialized (runs daily at 2 AM as fallback for expired sessions)');
     }
 
     app.listen(PORT, () => {
@@ -179,6 +217,16 @@ startServer();
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('🛑 Server shutting down...');
+  
+  // Clear all scheduled cleanups
+  try {
+    const sessionCleanupManager = (await import('./services/session-cleanup-manager.js')).default;
+    sessionCleanupManager.clearAllCleanups();
+    console.log('✅ Cleared all scheduled cleanups');
+  } catch (error) {
+    console.error('❌ Error clearing scheduled cleanups:', error);
+  }
+  
   await prisma.$disconnect();
   process.exit(0);
 });

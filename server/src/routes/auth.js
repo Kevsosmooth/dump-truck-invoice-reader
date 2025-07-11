@@ -169,15 +169,35 @@ router.post('/login', async (req, res) => {
 });
 
 // Google OAuth
-router.get('/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
+router.get('/google', (req, res, next) => {
+  // Store admin flag in session if present
+  if (req.query.admin === 'true') {
+    req.session = req.session || {};
+    req.session.isAdminLogin = true;
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
 
 router.get('/google/callback',
   passport.authenticate('google', { session: false }),
   async (req, res) => {
     try {
       const user = req.user;
+      
+      // Check if this is an admin login attempt
+      const isAdminLogin = req.session?.isAdminLogin === true;
+      
+      if (isAdminLogin) {
+        // Clean up session flag
+        if (req.session) {
+          delete req.session.isAdminLogin;
+        }
+        
+        // Redirect to admin auth handler
+        return res.redirect(`/admin/auth/google/callback?userId=${user.id}`);
+      }
+      
+      // Regular client login
       const token = await createSession(user.id);
 
       // Redirect to frontend with token

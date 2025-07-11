@@ -175,11 +175,28 @@ export async function deleteBlobsByPrefix(prefix) {
   try {
     // Add environment prefix
     const fullPrefix = environmentPrefix + prefix;
+    
+    console.log(`[AZURE-STORAGE] Deleting blobs with prefix: ${fullPrefix}`);
+    console.log(`[AZURE-STORAGE] Environment: ${environment}, Container: ${containerName}`);
+    
     // List all blobs with the prefix
+    const blobsToDelete = [];
     for await (const blob of containerClient.listBlobsFlat({ prefix: fullPrefix })) {
-      await deleteBlob(blob.name);
+      blobsToDelete.push(blob.name);
+    }
+    
+    console.log(`[AZURE-STORAGE] Found ${blobsToDelete.length} blobs to delete with prefix: ${fullPrefix}`);
+    
+    // Delete each blob
+    for (const blobName of blobsToDelete) {
+      console.log(`[AZURE-STORAGE] Deleting blob: ${blobName}`);
+      // Use the blob client directly since blobName already has the full path
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.deleteIfExists();
       deletedCount++;
     }
+    
+    console.log(`[AZURE-STORAGE] Successfully deleted ${deletedCount} blobs`);
     
     return deletedCount;
   } catch (error) {
