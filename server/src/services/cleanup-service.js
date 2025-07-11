@@ -32,10 +32,12 @@ export async function cleanupSessionBlobs(sessionId, blobPrefix) {
 
 /**
  * Main cleanup function for expired sessions
- * @param {number} hoursThreshold - Number of hours after which sessions are considered expired (default: 24)
+ * Sessions have an expiresAt field set to 24 hours from creation time.
+ * This function cleans up sessions that have passed their expiration date,
+ * which aligns with Azure's 24-hour retention for polling data.
  * @returns {Promise<Object>} - Cleanup statistics
  */
-export async function cleanupExpiredSessions(hoursThreshold = 24) {
+export async function cleanupExpiredSessions() {
   const startTime = Date.now();
   const stats = {
     sessionsProcessed: 0,
@@ -46,17 +48,16 @@ export async function cleanupExpiredSessions(hoursThreshold = 24) {
   };
 
   try {
-    console.log(`Starting cleanup process for sessions older than ${hoursThreshold} hours...`);
+    console.log(`Starting cleanup process for sessions past their expiration date...`);
 
-    // Calculate the expiration threshold
-    const expirationDate = new Date();
-    expirationDate.setHours(expirationDate.getHours() - hoursThreshold);
+    const currentDate = new Date();
 
-    // Find all sessions that should be expired
+    // Find all sessions that have passed their expiration date
+    // Sessions are created with expiresAt = createdAt + 24 hours
     const expiredSessions = await prisma.processingSession.findMany({
       where: {
-        createdAt: {
-          lt: expirationDate
+        expiresAt: {
+          lt: currentDate
         },
         status: {
           not: 'EXPIRED'
@@ -107,7 +108,7 @@ export async function cleanupExpiredSessions(hoursThreshold = 24) {
         const blobsDeleted = await cleanupSessionBlobs(session.id, session.blobPrefix);
         stats.blobsDeleted += blobsDeleted;
 
-        console.log(`Expired session ${session.id}: ${session.jobs.length} jobs, ${blobsDeleted} blobs deleted`);
+        console.log(`Expired session ${session.id} (expired at: ${session.expiresAt.toISOString()}): ${session.jobs.length} jobs, ${blobsDeleted} blobs deleted`);
       } catch (error) {
         const errorMsg = `Failed to process session ${session.id}: ${error.message}`;
         console.error(errorMsg);
@@ -180,15 +181,14 @@ export async function cleanupExpiredSessions(hoursThreshold = 24) {
 /**
  * Schedule recurring cleanup
  * @param {string} cronExpression - Cron expression for scheduling (default: daily at 2 AM)
- * @param {number} hoursThreshold - Number of hours after which sessions are considered expired
  * @returns {Object} - Cron task object
  */
-export function scheduleCleanup(cronExpression = '0 2 * * *', hoursThreshold = 24) {
+export function scheduleCleanup(cronExpression = '0 2 * * *') {
   console.log(`Scheduling cleanup with cron expression: ${cronExpression}`);
   
   const task = cron.schedule(cronExpression, async () => {
     console.log('Running scheduled cleanup...');
-    await cleanupExpiredSessions(hoursThreshold);
+    await cleanupExpiredSessions();
   });
 
   task.start();
@@ -213,10 +213,6 @@ export async function runCleanup() {
 
 // Allow running as a script
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // Check for command line arguments
-  const args = process.argv.slice(2);
-  const hoursThreshold = args[0] ? parseInt(args[0]) : 24;
-  
-  console.log(`Running manual cleanup for sessions older than ${hoursThreshold} hours...`);
+  console.log(`Running manual cleanup for sessions past their expiration date...`);
   runCleanup();
 }
