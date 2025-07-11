@@ -182,7 +182,8 @@ When you upload 2 PDF files, here's the expected flow:
    - Each page becomes a separate job in the system
 
 3. **Rate-Limited Processing**
-   - Documents are processed at max 15 per second (Azure S0 tier limit)
+   - STANDARD tier: Processes up to 15 documents concurrently
+   - FREE tier: Processes 1 document at a time
    - Progress bar shows X/Y documents completed
    - Estimated time remaining displayed
    - Session is saved to localStorage for recovery
@@ -286,11 +287,19 @@ model File {
 }
 ```
 
-### Azure S0 Tier Rate Limits
+### Azure Tier Rate Limits
+
+**STANDARD (S0) Tier:**
 - **15 requests per second** maximum
-- Rate limiter implements exponential backoff
-- Concurrent processing limited to 10 files
-- Polling intervals adjusted to respect limits
+- Concurrent processing of up to 15 documents
+- Uses token bucket algorithm for rate limiting
+- Implements exponential backoff on failures
+
+**FREE (F0) Tier:**
+- **1 request per second** maximum
+- Sequential processing (1 document at a time)
+- Suitable for development and testing
+- Same token bucket algorithm with reduced rate
 
 ### Required Environment Variables
 ```env
@@ -452,6 +461,13 @@ Required for both modes:
 ```env
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
 AZURE_DOCUMENT_INTELLIGENCE_KEY="your-key"
+AZURE_CUSTOM_MODEL_ID="your-model-id"
+
+# Azure Document Intelligence Tier (Required)
+# Options: STANDARD (S0 - 15 req/sec) or FREE (F0 - 1 req/sec)
+# STANDARD tier allows concurrent processing up to 15 documents
+# FREE tier processes documents sequentially (1 at a time)
+AZURE_TIER="STANDARD"
 ```
 
 Additional for full mode:
@@ -461,6 +477,22 @@ SESSION_SECRET="your-session-secret"
 GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_CLIENT_SECRET="your-google-client-secret"
 ```
+
+### Azure Tier Configuration
+
+The application now supports tier-based rate limiting:
+
+- **STANDARD (S0)**: 
+  - 15 requests per second
+  - Concurrent processing of up to 15 documents
+  - Optimal for production workloads
+  
+- **FREE (F0)**: 
+  - 1 request per second
+  - Sequential processing (1 document at a time)
+  - Suitable for development/testing
+
+The tier is automatically detected from the `AZURE_TIER` environment variable, and the application adjusts its processing strategy accordingly.
 
 ### Recent Issues Resolved
 

@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { processDocumentFromUrl } from './azure-document-ai.js';
 import { generateSasUrl, extractBlobPath } from './azure-storage.js';
-import { waitForToken } from './rate-limiter.js';
+import { waitForToken, getMaxConcurrent } from './rate-limiter.js';
 import { postProcessJob, postProcessSession } from './post-processor.js';
 import { cleanupIntermediateFiles } from './storage-optimizer.js';
 
@@ -160,36 +160,111 @@ export async function processSessionJobs(sessionId) {
     },
   });
 
+  const maxConcurrent = getMaxConcurrent();
+
   console.log('\n========================================');
   console.log(`[PROCESSING] Starting session ${sessionId}`);
   console.log(`[PROCESSING] Model: ${session.modelId}`);
   console.log(`[PROCESSING] Jobs to process: ${jobs.length}`);
+  console.log(`[PROCESSING] Max concurrent: ${maxConcurrent}`);
+  console.log(`[PROCESSING] Tier: ${process.env.AZURE_TIER || 'FREE'}`);
   console.log('========================================\n');
 
-  // Process jobs sequentially to respect rate limits
   let processedCount = 0;
-  for (const job of jobs) {
-    try {
-      processedCount++;
-      console.log(`\n[PROCESSING] Job ${processedCount}/${jobs.length}: ${job.fileName}`);
+  let failedCount = 0;
+
+  if (maxConcurrent === 1) {
+    // FREE tier - process sequentially
+    console.log('[PROCESSING] Using sequential processing (FREE tier)');
+    
+    for (const job of jobs) {
+      try {
+        processedCount++;
+        console.log(`\n[PROCESSING] Job ${processedCount}/${jobs.length}: ${job.fileName}`);
+        
+        await processDocumentSync({
+          jobId: job.id,
+          sessionId: job.sessionId,
+          userId: job.userId,
+          modelId: session.modelId,
+        });
+        
+        console.log(`[PROCESSING] ✅ Completed ${processedCount}/${jobs.length}`);
+      } catch (error) {
+        failedCount++;
+        console.error(`[PROCESSING] ❌ Failed job ${job.id}:`, error.message);
+      }
+    }
+  } else {
+    // STANDARD tier - process concurrently
+    console.log(`[PROCESSING] Using concurrent processing (STANDARD tier, max ${maxConcurrent})`);
+    
+    // Process jobs with controlled concurrency
+    const activePromises = new Map(); // Map of jobId to promise
+    let jobIndex = 0;
+    
+    // Helper function to process a single job
+    const processJob = async (job, index) => {
+      try {
+        console.log(`[PROCESSING] Starting job ${index + 1}/${jobs.length}: ${job.fileName}`);
+        
+        await processDocumentSync({
+          jobId: job.id,
+          sessionId: job.sessionId,
+          userId: job.userId,
+          modelId: session.modelId,
+        });
+        
+        processedCount++;
+        console.log(`[PROCESSING] ✅ Completed ${job.fileName} (${processedCount} done)`);
+      } catch (error) {
+        failedCount++;
+        console.error(`[PROCESSING] ❌ Failed ${job.fileName}:`, error.message);
+        throw error;
+      }
+    };
+    
+    // Process jobs with concurrency control
+    while (jobIndex < jobs.length || activePromises.size > 0) {
+      // Start new jobs up to the concurrent limit
+      while (jobIndex < jobs.length && activePromises.size < maxConcurrent) {
+        const job = jobs[jobIndex];
+        const currentIndex = jobIndex;
+        const promise = processJob(job, currentIndex);
+        activePromises.set(job.id, promise);
+        jobIndex++;
+      }
       
-      await processDocumentSync({
-        jobId: job.id,
-        sessionId: job.sessionId,
-        userId: job.userId,
-        modelId: session.modelId, // Use modelId from session
-      });
-      
-      console.log(`[PROCESSING] ✅ Completed ${processedCount}/${jobs.length}`);
-    } catch (error) {
-      console.error(`[PROCESSING] ❌ Failed job ${job.id}:`, error.message);
-      // Continue with other jobs even if one fails
+      // Wait for at least one job to complete if we're at the limit
+      if (activePromises.size > 0) {
+        try {
+          await Promise.race(activePromises.values());
+        } catch (error) {
+          // Error already logged in processJob
+        }
+        
+        // Remove completed promises
+        for (const [jobId, promise] of activePromises.entries()) {
+          try {
+            // Check if promise is settled without waiting
+            await Promise.race([promise, Promise.resolve('pending')]).then(result => {
+              if (result !== 'pending') {
+                activePromises.delete(jobId);
+              }
+            });
+          } catch {
+            // Promise rejected, remove it
+            activePromises.delete(jobId);
+          }
+        }
+      }
     }
   }
   
   console.log('\n========================================');
   console.log(`[PROCESSING COMPLETE] Session ${sessionId}`);
   console.log(`[PROCESSING COMPLETE] Total processed: ${processedCount}/${jobs.length}`);
+  console.log(`[PROCESSING COMPLETE] Failed: ${failedCount}`);
   console.log('========================================\n');
   
   // Update session status to COMPLETED if all jobs are done

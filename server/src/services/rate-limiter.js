@@ -1,14 +1,39 @@
 /**
  * Rate Limiter Service
  * Implements token bucket algorithm for Azure API rate limiting
- * Supports 15 requests/second with queue management and exponential backoff
+ * Supports tier-based rate limiting:
+ * - STANDARD (S0): 15 requests/second
+ * - FREE (F0): 1 request/second
  */
+
+// Tier configurations
+const TIER_CONFIGS = {
+  STANDARD: {
+    maxTokens: 15,
+    refillRate: 15,
+    maxConcurrent: 15,
+    description: 'S0 Standard Tier - 15 req/sec'
+  },
+  FREE: {
+    maxTokens: 1,
+    refillRate: 1,
+    maxConcurrent: 1,
+    description: 'F0 Free Tier - 1 req/sec'
+  }
+};
+
+// Get tier from environment variable
+const tier = process.env.AZURE_TIER || 'FREE';
+const tierConfig = TIER_CONFIGS[tier.toUpperCase()] || TIER_CONFIGS.FREE;
+
+console.log(`[RATE-LIMITER] Initializing with ${tierConfig.description}`);
+console.log(`[RATE-LIMITER] Max concurrent requests: ${tierConfig.maxConcurrent}`);
 
 class RateLimiter {
   constructor(options = {}) {
-    // Token bucket configuration
-    this.maxTokens = options.maxTokens || 15; // Maximum tokens in bucket
-    this.refillRate = options.refillRate || 15; // Tokens per second
+    // Token bucket configuration based on tier
+    this.maxTokens = options.maxTokens || tierConfig.maxTokens;
+    this.refillRate = options.refillRate || tierConfig.refillRate;
     this.tokens = this.maxTokens; // Current available tokens
     
     // Queue management
@@ -223,8 +248,8 @@ class RateLimiter {
 
 // Create a singleton instance for Azure API rate limiting
 const azureRateLimiter = new RateLimiter({
-  maxTokens: 15,
-  refillRate: 15,
+  maxTokens: tierConfig.maxTokens,
+  refillRate: tierConfig.refillRate,
   minBackoff: 100,
   maxBackoff: 60000,
   backoffMultiplier: 2
@@ -232,6 +257,10 @@ const azureRateLimiter = new RateLimiter({
 
 // Export functions for easy use
 export const rateLimiter = azureRateLimiter;
+
+// Export tier configuration for use in other modules
+export const getTierConfig = () => tierConfig;
+export const getMaxConcurrent = () => tierConfig.maxConcurrent;
 
 // Convenience functions
 export const canMakeRequest = () => azureRateLimiter.canMakeRequest();
