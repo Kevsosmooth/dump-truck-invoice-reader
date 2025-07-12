@@ -8,7 +8,8 @@ import {
   LogOut,
   Menu,
   X,
-  FileText
+  FileText,
+  HelpCircle
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Models', href: '/models', icon: FileText },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Help', href: '/help', icon: HelpCircle },
 ];
 
 export default function AdminLayout({ children }) {

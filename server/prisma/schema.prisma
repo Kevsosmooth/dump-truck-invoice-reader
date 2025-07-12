@@ -31,6 +31,7 @@ model User {
   transactions       Transaction[]
   modelConfigurations ModelConfiguration[]
   modelAccess        ModelAccess[]
+  grantedAccess      ModelAccess[]       @relation("GrantedBy")
 }
 
 model Session {
@@ -81,7 +82,8 @@ model Job {
   pageCount        Int                @default(0)
   pagesProcessed   Int                @default(0)
   creditsUsed      Int                @default(0)
-  modelId          String?
+  modelId          String?            // Azure model ID
+  modelConfigId    String?            // Model configuration ID for defaults
   error            String?
   metadata         Json?
   queueJobId       String?
@@ -104,10 +106,12 @@ model Job {
   childJobs        Job[]              @relation("ParentChild")
   session          ProcessingSession? @relation(fields: [sessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user             User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modelConfig      ModelConfiguration? @relation(fields: [modelConfigId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([sessionId])
   @@index([operationId])
   @@index([parentJobId])
+  @@index([modelConfigId])
 }
 
 model ProcessingSession {
@@ -196,64 +200,69 @@ model CleanupLog {
 
 model ModelConfiguration {
   id               String               @id @default(dbgenerated("(gen_random_uuid())::text"))
-  azureModelId     String
-  customName       String
+  azureModelId     String               @unique
+  displayName      String
   description      String?
   isActive         Boolean              @default(true)
-  isPublic         Boolean              @default(false)
   createdBy        Int
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @default(now()) @updatedAt
   creator          User                 @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   fieldConfigs     FieldConfiguration[]
   modelAccess      ModelAccess[]
+  jobs             Job[]
   
-  @@unique([azureModelId, createdBy])
   @@index([azureModelId])
   @@index([createdBy])
-  @@index([isPublic])
+  @@index([isActive])
 }
 
 model FieldConfiguration {
   id                String               @id @default(dbgenerated("(gen_random_uuid())::text"))
   modelConfigId     String
-  azureFieldName    String
-  customFieldName   String?
-  fieldType         String?
+  fieldName         String               // Azure field name
+  displayName       String               // User-friendly display name
+  fieldType         FieldType            @default(TEXT)
   isEnabled         Boolean              @default(true)
   isRequired        Boolean              @default(false)
   defaultValue      String?
-  defaultValueType  FieldDefaultType     @default(EMPTY)
+  defaultType       FieldDefaultType     @default(EMPTY)
   fieldOrder        Int                  @default(0)
+  validation        Json?                // Optional validation rules
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @default(now()) @updatedAt
   modelConfig       ModelConfiguration   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   
-  @@unique([modelConfigId, azureFieldName])
+  @@unique([modelConfigId, fieldName])
   @@index([modelConfigId])
 }
 
 model ModelAccess {
   id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   modelConfigId   String
-  userId          Int?
-  organizationId  Int?
-  canRead         Boolean            @default(true)
-  canUse          Boolean            @default(true)
-  canEdit         Boolean            @default(false)
-  grantedBy       Int
+  userId          Int
+  customName      String?            // User-specific display name override
+  isActive        Boolean            @default(true)
   grantedAt       DateTime           @default(now())
-  expiresAt       DateTime?
+  grantedBy       Int?               // Admin who granted access
+  expiresAt       DateTime?          // Optional expiration date
   modelConfig     ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user            User?              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  organization    Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grantedByUser   User?              @relation("GrantedBy", fields: [grantedBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
   
   @@unique([modelConfigId, userId])
-  @@unique([modelConfigId, organizationId])
   @@index([modelConfigId])
   @@index([userId])
-  @@index([organizationId])
+  @@index([isActive])
   @@index([expiresAt])
+}
+
+enum FieldType {
+  TEXT
+  DATE
+  NUMBER
+  CURRENCY
+  BOOLEAN
 }
 
 enum FieldDefaultType {
@@ -262,6 +271,7 @@ enum FieldDefaultType {
   CURRENT_USER
   ORGANIZATION
   EMPTY
+  CALCULATED
 }
 
 enum UserRole {

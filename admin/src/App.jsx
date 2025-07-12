@@ -9,6 +9,7 @@ import CreditHistory from '@/pages/CreditHistory';
 import Analytics from '@/pages/Analytics';
 import Settings from '@/pages/Settings';
 import Models from '@/pages/Models';
+import Help from '@/pages/Help';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { Loader2 } from 'lucide-react';
 import '@/styles/dialog-fixes.css';
@@ -66,6 +67,7 @@ function AppRoutes() {
                   <Route path="/models" element={<Models />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/help" element={<Help />} />
                 </Routes>
               </AdminLayout>
             </PrivateRoute>

@@ -15,6 +15,233 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 class ModelManager {
   /**
+   * Get all models accessible by a user
+   */
+  async getUserModels(userId) {
+    const access = await prisma.modelAccess.findMany({
+      where: {
+        userId,
+        isActive: true,
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gte: new Date() } }
+        ]
+      },
+      include: {
+        modelConfig: {
+          include: { 
+            fieldConfigs: {
+              where: { isEnabled: true },
+              orderBy: { fieldOrder: 'asc' }
+            }
+          }
+        }
+      }
+    });
+    
+    return access.map(a => ({
+      id: a.modelConfig.id,
+      displayName: a.customName || a.modelConfig.displayName,
+      azureModelId: a.modelConfig.azureModelId,
+      description: a.modelConfig.description,
+      fields: a.modelConfig.fieldConfigs.map(f => ({
+        fieldName: f.fieldName,
+        displayName: f.displayName,
+        fieldType: f.fieldType,
+        isRequired: f.isRequired,
+        defaultType: f.defaultType,
+        defaultValue: f.defaultValue
+      }))
+    }));
+  }
+
+  /**
+   * Get a specific model if user has access
+   */
+  async getUserModel(userId, modelConfigId) {
+    const access = await prisma.modelAccess.findUnique({
+      where: {
+        modelConfigId_userId: {
+          modelConfigId,
+          userId
+        }
+      },
+      include: {
+        modelConfig: {
+          include: { 
+            fieldConfigs: {
+              where: { isEnabled: true },
+              orderBy: { fieldOrder: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    if (!access || !access.isActive) {
+      return null;
+    }
+
+    // Check expiration
+    if (access.expiresAt && access.expiresAt < new Date()) {
+      return null;
+    }
+
+    return {
+      id: access.modelConfig.id,
+      displayName: access.customName || access.modelConfig.displayName,
+      azureModelId: access.modelConfig.azureModelId,
+      description: access.modelConfig.description,
+      fields: access.modelConfig.fieldConfigs
+    };
+  }
+
+  /**
+   * Grant access to a model for multiple users
+   */
+  async grantAccess(modelConfigId, userIds, grantedBy, options = {}) {
+    const { customName, expiresAt } = options;
+    
+    const results = await Promise.all(
+      userIds.map(userId => 
+        prisma.modelAccess.upsert({
+          where: {
+            modelConfigId_userId: {
+              modelConfigId,
+              userId
+            }
+          },
+          create: {
+            modelConfigId,
+            userId,
+            customName,
+            grantedBy,
+            expiresAt,
+            isActive: true
+          },
+          update: {
+            isActive: true,
+            customName,
+            grantedBy,
+            expiresAt,
+            grantedAt: new Date()
+          }
+        })
+      )
+    );
+    
+    return results;
+  }
+
+  /**
+   * Revoke access to a model for a user
+   */
+  async revokeAccess(modelConfigId, userId) {
+    return await prisma.modelAccess.update({
+      where: {
+        modelConfigId_userId: {
+          modelConfigId,
+          userId
+        }
+      },
+      data: {
+        isActive: false
+      }
+    });
+  }
+
+  /**
+   * Apply field defaults to extracted data
+   */
+  async applyFieldDefaults(modelConfigId, extractedData, context = {}) {
+    const fields = await prisma.fieldConfiguration.findMany({
+      where: { 
+        modelConfigId,
+        isEnabled: true 
+      }
+    });
+    
+    const processedData = { ...extractedData };
+    
+    for (const field of fields) {
+      // Check if field is missing or empty
+      const currentValue = processedData[field.fieldName];
+      const isEmpty = !currentValue || 
+                     (typeof currentValue === 'string' && currentValue.trim() === '') ||
+                     (Array.isArray(currentValue) && currentValue.length === 0);
+      
+      if (isEmpty || (field.isRequired && isEmpty)) {
+        processedData[field.fieldName] = await this.getDefaultValue(field, context);
+      }
+    }
+    
+    return processedData;
+  }
+
+  /**
+   * Get default value based on field configuration
+   */
+  async getDefaultValue(field, context = {}) {
+    switch (field.defaultType) {
+      case 'STATIC':
+        return field.defaultValue || '';
+        
+      case 'TODAY':
+        return new Date().toISOString().split('T')[0];
+        
+      case 'CURRENT_USER':
+        if (context.user) {
+          return context.user.firstName && context.user.lastName
+            ? `${context.user.firstName} ${context.user.lastName}`
+            : context.user.email;
+        }
+        return 'Unknown User';
+        
+      case 'ORGANIZATION':
+        if (context.user?.organization) {
+          return context.user.organization.name;
+        }
+        return 'Unknown Organization';
+        
+      case 'EMPTY':
+        return '';
+        
+      case 'CALCULATED':
+        // Parse and evaluate formula (simple implementation)
+        return this.evaluateFormula(field.defaultValue, context);
+        
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * Simple formula evaluator for calculated defaults
+   */
+  evaluateFormula(formula, context) {
+    if (!formula) return '';
+    
+    // Simple token replacement
+    let result = formula;
+    
+    // Replace tokens like {{TODAY}}, {{USER_NAME}}, etc.
+    const tokens = {
+      '{{TODAY}}': new Date().toISOString().split('T')[0],
+      '{{CURRENT_YEAR}}': new Date().getFullYear().toString(),
+      '{{CURRENT_MONTH}}': (new Date().getMonth() + 1).toString().padStart(2, '0'),
+      '{{USER_NAME}}': context.user?.firstName || 'Unknown',
+      '{{USER_EMAIL}}': context.user?.email || '',
+      '{{TIMESTAMP}}': new Date().toISOString()
+    };
+    
+    for (const [token, value] of Object.entries(tokens)) {
+      result = result.replace(new RegExp(token, 'g'), value);
+    }
+    
+    return result;
+  }
+
+  /**
    * List all available models from Azure
    */
   async listAzureModels() {
@@ -65,9 +292,216 @@ class ModelManager {
   }
 
   /**
+   * Create a new model configuration
+   */
+  async createModelConfiguration(azureModelId, displayName, createdBy, options = {}) {
+    const { description, fields = [] } = options;
+    
+    // Get Azure model details to extract fields
+    const azureDetails = await this.getAzureModelDetails(azureModelId);
+    const azureFields = this.extractFieldsFromAzureModel(azureDetails);
+    
+    // Merge provided fields with Azure fields
+    const mergedFields = this.mergeFieldConfigurations(azureFields, fields);
+    
+    return await prisma.modelConfiguration.create({
+      data: {
+        azureModelId,
+        displayName,
+        description,
+        createdBy,
+        fieldConfigs: {
+          create: mergedFields.map((field, index) => ({
+            fieldName: field.fieldName,
+            displayName: field.displayName || field.fieldName,
+            fieldType: field.fieldType || 'TEXT',
+            defaultType: field.defaultType || 'EMPTY',
+            defaultValue: field.defaultValue,
+            isRequired: field.isRequired || false,
+            fieldOrder: index
+          }))
+        }
+      },
+      include: {
+        fieldConfigs: true
+      }
+    });
+  }
+
+  /**
+   * Extract fields from Azure model details
+   */
+  extractFieldsFromAzureModel(azureDetails) {
+    const fields = [];
+    
+    if (azureDetails?.docTypes) {
+      const docTypeKey = Object.keys(azureDetails.docTypes)[0];
+      const fieldSchema = azureDetails.docTypes[docTypeKey]?.fieldSchema || {};
+      
+      for (const [fieldName, fieldInfo] of Object.entries(fieldSchema)) {
+        fields.push({
+          fieldName,
+          displayName: this.formatFieldName(fieldName),
+          fieldType: this.mapAzureFieldType(fieldInfo.type),
+          isRequired: false // Azure doesn't provide this info
+        });
+      }
+    }
+    
+    return fields;
+  }
+
+  /**
+   * Format field name for display
+   */
+  formatFieldName(fieldName) {
+    return fieldName
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, str => str.toUpperCase())
+      .trim();
+  }
+
+  /**
+   * Map Azure field type to our FieldType enum
+   */
+  mapAzureFieldType(azureType) {
+    const typeMap = {
+      'string': 'TEXT',
+      'number': 'NUMBER',
+      'date': 'DATE',
+      'boolean': 'BOOLEAN',
+      'currency': 'CURRENCY',
+      'object': 'TEXT',
+      'array': 'TEXT'
+    };
+    
+    return typeMap[azureType] || 'TEXT';
+  }
+
+  /**
+   * Merge field configurations
+   */
+  mergeFieldConfigurations(azureFields, providedFields) {
+    const fieldMap = new Map();
+    
+    // Add Azure fields first
+    azureFields.forEach(field => {
+      fieldMap.set(field.fieldName, field);
+    });
+    
+    // Override with provided fields
+    providedFields.forEach(field => {
+      if (fieldMap.has(field.fieldName)) {
+        fieldMap.set(field.fieldName, {
+          ...fieldMap.get(field.fieldName),
+          ...field
+        });
+      } else {
+        fieldMap.set(field.fieldName, field);
+      }
+    });
+    
+    return Array.from(fieldMap.values());
+  }
+
+  /**
+   * Update field configurations for a model
+   */
+  async updateFieldConfigurations(modelConfigId, fields) {
+    // Delete existing field configs
+    await prisma.fieldConfiguration.deleteMany({
+      where: { modelConfigId }
+    });
+    
+    // Create new field configs
+    const fieldConfigs = await Promise.all(
+      fields.map((field, index) => 
+        prisma.fieldConfiguration.create({
+          data: {
+            modelConfigId,
+            fieldName: field.fieldName,
+            displayName: field.displayName,
+            fieldType: field.fieldType,
+            defaultType: field.defaultType,
+            defaultValue: field.defaultValue,
+            isRequired: field.isRequired,
+            isEnabled: field.isEnabled !== false,
+            fieldOrder: index,
+            validation: field.validation
+          }
+        })
+      )
+    );
+    
+    return fieldConfigs;
+  }
+
+  /**
+   * Get all users with access to a model
+   */
+  async getModelUsers(modelConfigId) {
+    const access = await prisma.modelAccess.findMany({
+      where: { 
+        modelConfigId,
+        isActive: true 
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            organization: true
+          }
+        },
+        grantedByUser: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      },
+      orderBy: {
+        grantedAt: 'desc'
+      }
+    });
+    
+    return access;
+  }
+
+  /**
+   * Check if user has access to a model
+   */
+  async hasAccess(userId, modelConfigId) {
+    const access = await prisma.modelAccess.findUnique({
+      where: {
+        modelConfigId_userId: {
+          modelConfigId,
+          userId
+        }
+      }
+    });
+    
+    if (!access || !access.isActive) {
+      return false;
+    }
+    
+    // Check expiration
+    if (access.expiresAt && access.expiresAt < new Date()) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
    * Sync Azure models with database
    */
-  async syncModelsWithDatabase() {
+  async syncModelsWithDatabase(adminUserId) {
     try {
       const azureModels = await this.listAzureModels();
       const syncResults = {
@@ -78,38 +512,28 @@ class ModelManager {
 
       for (const azureModel of azureModels) {
         try {
-          // Get existing model from database
-          const existingModel = await prisma.customModel.findUnique({
-            where: { modelId: azureModel.modelId }
+          // Check if model already exists
+          const existingModel = await prisma.modelConfiguration.findUnique({
+            where: { azureModelId: azureModel.modelId }
           });
 
           if (!existingModel) {
             // Create new model
-            const modelDetails = await this.getAzureModelDetails(azureModel.modelId);
-            
-            await prisma.customModel.create({
-              data: {
-                modelId: azureModel.modelId,
-                displayName: azureModel.description || azureModel.modelId,
-                description: azureModel.description,
-                isActive: true,
-                isPublic: false,
-                azureDetails: modelDetails,
-                createdAt: new Date(azureModel.createdDateTime),
-                updatedAt: new Date()
+            await this.createModelConfiguration(
+              azureModel.modelId,
+              azureModel.description || azureModel.modelId,
+              adminUserId,
+              {
+                description: azureModel.description
               }
-            });
+            );
             syncResults.created++;
           } else {
-            // Update existing model
-            const modelDetails = await this.getAzureModelDetails(azureModel.modelId);
-            
-            await prisma.customModel.update({
+            // Update existing model (just the description)
+            await prisma.modelConfiguration.update({
               where: { id: existingModel.id },
               data: {
-                displayName: azureModel.description || existingModel.displayName,
                 description: azureModel.description || existingModel.description,
-                azureDetails: modelDetails,
                 updatedAt: new Date()
               }
             });
@@ -131,364 +555,71 @@ class ModelManager {
   }
 
   /**
-   * Get user's available models based on permissions
+   * Get all configured models (admin view)
    */
-  async getUserAvailableModels(userId, organizationId = null) {
-    try {
-      const whereClause = {
-        isActive: true,
-        OR: [
-          { isPublic: true },
-          { ownerId: userId }
-        ]
-      };
-
-      // If user belongs to an organization, include organization models
-      if (organizationId) {
-        whereClause.OR.push({ organizationId });
-      }
-
-      const models = await prisma.customModel.findMany({
-        where: whereClause,
-        include: {
-          fieldConfigurations: {
-            where: { isEnabled: true },
-            orderBy: { displayOrder: 'asc' }
+  async getAllModels() {
+    const models = await prisma.modelConfiguration.findMany({
+      include: {
+        _count: {
+          select: { 
+            modelAccess: {
+              where: { isActive: true }
+            },
+            fieldConfigs: true 
           }
         },
-        orderBy: [
-          { isPublic: 'desc' },
-          { displayName: 'asc' }
-        ]
-      });
-
-      return models;
-    } catch (error) {
-      console.error('Error getting user available models:', error);
-      throw new Error('Failed to get user available models');
-    }
-  }
-
-  /**
-   * Get model with field configurations
-   */
-  async getModelWithFieldConfigs(modelId, userId = null) {
-    try {
-      const model = await prisma.customModel.findUnique({
-        where: { modelId },
-        include: {
-          fieldConfigurations: {
-            where: { isEnabled: true },
-            orderBy: { displayOrder: 'asc' }
-          },
-          owner: {
-            select: {
-              id: true,
-              name: true,
-              email: true
-            }
-          },
-          organization: {
-            select: {
-              id: true,
-              name: true
-            }
+        creator: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true
           }
         }
-      });
-
-      if (!model) {
-        throw new Error('Model not found');
+      },
+      orderBy: {
+        createdAt: 'desc'
       }
-
-      // Check access permissions if userId is provided
-      if (userId && !this.hasModelAccess(model, userId)) {
-        throw new Error('Access denied to this model');
-      }
-
-      // Get Azure model details if not cached
-      const azureDetails = await this.getAzureModelDetails(modelId);
-      
-      // Merge Azure field info with database configurations
-      const enrichedFields = this.enrichFieldConfigurations(
-        model.fieldConfigurations,
-        azureDetails
-      );
-
-      return {
-        ...model,
-        fieldConfigurations: enrichedFields,
-        azureDetails
-      };
-    } catch (error) {
-      console.error('Error getting model with field configs:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Check if user has access to a model
-   */
-  hasModelAccess(model, userId, organizationId = null) {
-    // Public models are accessible to everyone
-    if (model.isPublic) return true;
-
-    // Owner has access
-    if (model.ownerId === userId) return true;
-
-    // Organization members have access to organization models
-    if (organizationId && model.organizationId === organizationId) return true;
-
-    return false;
-  }
-
-  /**
-   * Enrich field configurations with Azure model details
-   */
-  enrichFieldConfigurations(fieldConfigs, azureDetails) {
-    const azureFields = azureDetails?.docTypes?.[azureDetails.modelId]?.fieldSchema || {};
-    
-    return fieldConfigs.map(config => {
-      const azureField = azureFields[config.fieldName];
-      
-      return {
-        ...config,
-        azureType: azureField?.type || 'string',
-        azureDescription: azureField?.description,
-        isRequired: azureField?.required || false
-      };
     });
-  }
-
-  /**
-   * Apply default values to extracted data
-   */
-  applyDefaultValues(extractedData, fieldConfigurations) {
-    const processedData = { ...extractedData };
-
-    for (const config of fieldConfigurations) {
-      // Skip if field already has a value
-      if (processedData[config.fieldName]) continue;
-
-      // Apply default value based on type
-      if (config.defaultValue) {
-        switch (config.defaultValueType) {
-          case 'STATIC':
-            processedData[config.fieldName] = config.defaultValue;
-            break;
-            
-          case 'CURRENT_DATE':
-            processedData[config.fieldName] = new Date().toISOString().split('T')[0];
-            break;
-            
-          case 'CURRENT_DATETIME':
-            processedData[config.fieldName] = new Date().toISOString();
-            break;
-            
-          case 'FUNCTION':
-            // Execute custom function (if safe and allowed)
-            processedData[config.fieldName] = this.executeDefaultFunction(
-              config.defaultValue,
-              extractedData
-            );
-            break;
-            
-          default:
-            processedData[config.fieldName] = config.defaultValue;
-        }
-      }
-    }
-
-    return processedData;
-  }
-
-  /**
-   * Execute a default value function safely
-   */
-  executeDefaultFunction(functionStr, context) {
-    // This is a simplified version - in production, you'd want
-    // more robust sandboxing and security measures
-    try {
-      const allowedFunctions = {
-        'TODAY': () => new Date().toISOString().split('T')[0],
-        'NOW': () => new Date().toISOString(),
-        'CONCAT': (...args) => args.join(''),
-        'UPPER': (str) => String(str).toUpperCase(),
-        'LOWER': (str) => String(str).toLowerCase()
-      };
-
-      // Parse simple function calls like "TODAY()" or "UPPER(fieldName)"
-      const match = functionStr.match(/^(\w+)\((.*)\)$/);
-      if (!match) return functionStr;
-
-      const [, funcName, args] = match;
-      const func = allowedFunctions[funcName];
-      
-      if (!func) return functionStr;
-
-      // Parse arguments (simple implementation)
-      const parsedArgs = args
-        .split(',')
-        .map(arg => {
-          const trimmed = arg.trim();
-          // If it's a field reference, get value from context
-          if (context[trimmed]) return context[trimmed];
-          // Otherwise return as string
-          return trimmed.replace(/^["']|["']$/g, '');
-        });
-
-      return func(...parsedArgs);
-    } catch (error) {
-      console.error('Error executing default function:', error);
-      return functionStr;
-    }
-  }
-
-  /**
-   * Filter and order fields based on configuration
-   */
-  filterAndOrderFields(extractedData, fieldConfigurations) {
-    const orderedData = {};
     
-    // Process fields in display order
-    const enabledFields = fieldConfigurations
-      .filter(config => config.isEnabled)
-      .sort((a, b) => a.displayOrder - b.displayOrder);
-
-    for (const config of enabledFields) {
-      const fieldName = config.fieldName;
-      const displayName = config.customDisplayName || fieldName;
-      
-      if (extractedData[fieldName] !== undefined) {
-        orderedData[displayName] = extractedData[fieldName];
-      }
-    }
-
-    return orderedData;
+    return models;
   }
 
   /**
-   * Process extracted data with all configurations
+   * Get model details for admin
    */
-  async processExtractedData(modelId, extractedData, userId = null) {
-    try {
-      // Get model with configurations
-      const model = await this.getModelWithFieldConfigs(modelId, userId);
-      
-      // Apply default values
-      const dataWithDefaults = this.applyDefaultValues(
-        extractedData,
-        model.fieldConfigurations
-      );
-      
-      // Filter and order fields
-      const processedData = this.filterAndOrderFields(
-        dataWithDefaults,
-        model.fieldConfigurations
-      );
-
-      return {
-        modelId: model.modelId,
-        modelName: model.displayName,
-        processedData,
-        fieldConfigurations: model.fieldConfigurations,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error('Error processing extracted data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create or update field configuration
-   */
-  async upsertFieldConfiguration(modelId, fieldConfig) {
-    try {
-      const model = await prisma.customModel.findUnique({
-        where: { modelId }
-      });
-
-      if (!model) {
-        throw new Error('Model not found');
-      }
-
-      const data = {
-        customModelId: model.id,
-        fieldName: fieldConfig.fieldName,
-        customDisplayName: fieldConfig.customDisplayName,
-        isEnabled: fieldConfig.isEnabled ?? true,
-        isRequired: fieldConfig.isRequired ?? false,
-        defaultValue: fieldConfig.defaultValue,
-        defaultValueType: fieldConfig.defaultValueType || 'STATIC',
-        displayOrder: fieldConfig.displayOrder ?? 999,
-        validationRules: fieldConfig.validationRules || {}
-      };
-
-      return await prisma.fieldConfiguration.upsert({
-        where: {
-          customModelId_fieldName: {
-            customModelId: model.id,
-            fieldName: fieldConfig.fieldName
+  async getModelDetails(modelConfigId) {
+    const model = await prisma.modelConfiguration.findUnique({
+      where: { id: modelConfigId },
+      include: {
+        fieldConfigs: {
+          orderBy: { fieldOrder: 'asc' }
+        },
+        modelAccess: {
+          where: { isActive: true },
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true
+              }
+            }
           }
         },
-        update: data,
-        create: data
-      });
-    } catch (error) {
-      console.error('Error upserting field configuration:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get model usage statistics
-   */
-  async getModelUsageStats(modelId, startDate = null, endDate = null) {
-    try {
-      const model = await prisma.customModel.findUnique({
-        where: { modelId }
-      });
-
-      if (!model) {
-        throw new Error('Model not found');
-      }
-
-      const whereClause = {
-        customModelId: model.id
-      };
-
-      if (startDate || endDate) {
-        whereClause.createdAt = {};
-        if (startDate) whereClause.createdAt.gte = new Date(startDate);
-        if (endDate) whereClause.createdAt.lte = new Date(endDate);
-      }
-
-      const [totalJobs, successfulJobs, failedJobs] = await Promise.all([
-        prisma.job.count({ where: whereClause }),
-        prisma.job.count({ where: { ...whereClause, status: 'completed' } }),
-        prisma.job.count({ where: { ...whereClause, status: 'failed' } })
-      ]);
-
-      const avgProcessingTime = await prisma.job.aggregate({
-        where: { ...whereClause, status: 'completed' },
-        _avg: {
-          processingTime: true
+        creator: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true
+          }
         }
-      });
-
-      return {
-        modelId,
-        totalJobs,
-        successfulJobs,
-        failedJobs,
-        successRate: totalJobs > 0 ? (successfulJobs / totalJobs) * 100 : 0,
-        avgProcessingTime: avgProcessingTime._avg.processingTime || 0
-      };
-    } catch (error) {
-      console.error('Error getting model usage stats:', error);
-      throw error;
-    }
+      }
+    });
+    
+    return model;
   }
 }
 

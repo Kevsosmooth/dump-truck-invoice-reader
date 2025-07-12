@@ -115,8 +115,8 @@ router.get('/overview', async (req, res) => {
       description: formatActivityDescription(log),
       user: log.user ? `${log.user.firstName || ''} ${log.user.lastName || ''}`.trim() || log.user.email : 'System',
       timestamp: log.createdAt,
-      action: log.action,
-      entityType: log.entityType
+      action: log.eventType,
+      entityType: log.eventType
     }));
 
     // Get actual system metrics
@@ -124,10 +124,11 @@ router.get('/overview', async (req, res) => {
       // Average API response time from recent jobs
       prisma.$queryRaw`
         SELECT 
-          AVG(EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) * 1000) as avg_ms
+          AVG(EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) * 1000) as avg_ms
         FROM "Job"
         WHERE status = 'COMPLETED' 
           AND "createdAt" >= ${new Date(Date.now() - 24 * 60 * 60 * 1000)}
+          AND "completedAt" IS NOT NULL
       `,
       
       // Get total storage used (count of jobs * average size estimate)
@@ -240,12 +241,12 @@ router.get('/credits', async (req, res) => {
       // Credit usage over time
       prisma.$queryRaw`
         SELECT 
-          DATE(created_at) as date,
-          SUM(CASE WHEN type = 'DEDUCT' THEN amount ELSE 0 END) as used,
+          DATE("createdAt") as date,
+          SUM(CASE WHEN type = 'USAGE' THEN amount ELSE 0 END) as used,
           SUM(CASE WHEN type IN ('PURCHASE', 'ADMIN_CREDIT') THEN amount ELSE 0 END) as added
         FROM "Transaction"
-        WHERE created_at >= ${startDate}
-        GROUP BY DATE(created_at)
+        WHERE "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
         ORDER BY date
       `,
       
@@ -263,12 +264,12 @@ router.get('/credits', async (req, res) => {
       // Top credit users
       prisma.$queryRaw`
         SELECT 
-          u.id, u.email, u.name, u.credits as current_credits,
+          u.id, u.email, u."firstName", u."lastName", u.credits as current_credits,
           COALESCE(SUM(t.amount), 0) as total_used
         FROM "User" u
-        LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'DEDUCT'
-        WHERE t.created_at >= ${startDate}
-        GROUP BY u.id, u.email, u.name, u.credits
+        LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'USAGE'
+        WHERE t."createdAt" >= ${startDate}
+        GROUP BY u.id, u.email, u."firstName", u."lastName", u.credits
         ORDER BY total_used DESC
         LIMIT 10
       `,
@@ -329,13 +330,13 @@ router.get('/documents', async (req, res) => {
       // Processing statistics over time
       prisma.$queryRaw`
         SELECT 
-          DATE(created_at) as date,
+          DATE("createdAt") as date,
           COUNT(*) as total,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-          COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed
+          COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+          COUNT(CASE WHEN status = 'FAILED' THEN 1 END) as failed
         FROM "Job"
-        WHERE created_at >= ${startDate}
-        GROUP BY DATE(created_at)
+        WHERE "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
         ORDER BY date
       `,
       
@@ -350,19 +351,19 @@ router.get('/documents', async (req, res) => {
       // Average processing time
       prisma.$queryRaw`
         SELECT 
-          AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as avg_seconds
+          AVG(EXTRACT(EPOCH FROM ("completedAt" - "createdAt"))) as avg_seconds
         FROM "Job"
-        WHERE status = 'completed' AND created_at >= ${startDate}
+        WHERE status = 'COMPLETED' AND "createdAt" >= ${startDate} AND "completedAt" IS NOT NULL
       `,
       
       // Error rate by day
       prisma.$queryRaw`
         SELECT 
-          DATE(created_at) as date,
-          COUNT(CASE WHEN status = 'failed' THEN 1 END)::float / COUNT(*)::float * 100 as error_rate
+          DATE("createdAt") as date,
+          COUNT(CASE WHEN status = 'FAILED' THEN 1 END)::float / COUNT(*)::float * 100 as error_rate
         FROM "Job"
-        WHERE created_at >= ${startDate}
-        GROUP BY DATE(created_at)
+        WHERE "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
         ORDER BY date
       `
     ]);
@@ -389,7 +390,7 @@ router.get('/errors', async (req, res) => {
 
     const errors = await prisma.job.findMany({
       where: {
-        status: 'failed',
+        status: 'FAILED',
         error: { not: null }
       },
       select: {
@@ -400,7 +401,8 @@ router.get('/errors', async (req, res) => {
         user: {
           select: {
             email: true,
-            name: true
+            firstName: true,
+            lastName: true
           }
         }
       },
@@ -434,14 +436,14 @@ router.get('/system-metrics', async (req, res) => {
       // Active jobs
       prisma.job.count({
         where: {
-          status: { in: ['processing', 'pending'] }
+          status: { in: ['PROCESSING', 'QUEUED'] }
         }
       }),
       
       // Recent error count (last hour)
       prisma.job.count({
         where: {
-          status: 'failed',
+          status: 'FAILED',
           createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) }
         }
       }),
@@ -449,7 +451,7 @@ router.get('/system-metrics', async (req, res) => {
       // Azure API health (check if we have recent successful jobs)
       prisma.job.findFirst({
         where: {
-          status: 'completed',
+          status: 'COMPLETED',
           createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
         }
       })
@@ -496,12 +498,12 @@ router.get('/revenue', async (req, res) => {
       // Revenue over time (assuming $0.10 per credit)
       prisma.$queryRaw`
         SELECT 
-          DATE(created_at) as date,
+          DATE("createdAt") as date,
           SUM(amount) * 0.10 as revenue,
           COUNT(*) as purchases
         FROM "Transaction"
-        WHERE type = 'PURCHASE' AND created_at >= ${startDate}
-        GROUP BY DATE(created_at)
+        WHERE type = 'PURCHASE' AND "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
         ORDER BY date
       `,
       
@@ -517,7 +519,7 @@ router.get('/revenue', async (req, res) => {
           COUNT(*) as count,
           SUM(amount) * 0.10 as revenue
         FROM "Transaction"
-        WHERE type = 'PURCHASE' AND created_at >= ${startDate}
+        WHERE type = 'PURCHASE' AND "createdAt" >= ${startDate}
         GROUP BY package_size
       `,
       
@@ -561,6 +563,7 @@ function formatActivityDescription(log) {
     'USER_LOGOUT': 'User logged out',
     'ADMIN_LOGIN': 'Admin logged in',
     'ADMIN_LOGOUT': 'Admin logged out',
+    'ADMIN_GOOGLE_LOGIN': 'Admin logged in via Google',
     'DOCUMENT_UPLOADED': 'Document uploaded',
     'DOCUMENT_PROCESSED': 'Document processed',
     'CREDITS_ADDED': 'Credits added',
@@ -570,7 +573,7 @@ function formatActivityDescription(log) {
     'SESSION_COMPLETED': 'Processing session completed'
   };
 
-  return actions[log.action] || log.action;
+  return actions[log.eventType] || log.eventType;
 }
 
 export default router;
