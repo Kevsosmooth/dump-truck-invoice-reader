@@ -48,13 +48,14 @@ router.post('/login', (req, res, next) => {
     prisma.auditLog.create({
       data: {
         userId: user.id,
-        action: 'ADMIN_LOGIN',
-        entityType: 'USER',
-        entityId: user.id,
-        details: {
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
+        eventType: 'ADMIN_LOGIN',
+        eventData: {
+          action: 'ADMIN_LOGIN',
+          entityType: 'USER',
+          entityId: user.id
         },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
       },
     }).catch(console.error);
 
@@ -136,22 +137,33 @@ router.get('/google/callback', async (req, res) => {
         path: '/',
       });
 
+      console.log('Admin login successful:', {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        tokenGenerated: !!token,
+        cookieSet: true
+      });
+
       // Create audit log entry
       await prisma.auditLog.create({
         data: {
           userId: user.id,
-          action: 'ADMIN_GOOGLE_LOGIN',
-          entityType: 'USER',
-          entityId: user.id,
-          details: {
+          eventType: 'ADMIN_GOOGLE_LOGIN',
+          eventData: {
+            action: 'ADMIN_GOOGLE_LOGIN',
+            entityType: 'USER',
+            entityId: user.id,
             ip: req.ip,
             userAgent: req.headers['user-agent'],
           },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
         },
       });
 
-    // Redirect to admin dashboard
-    res.redirect('http://localhost:5174');
+    // Redirect to admin auth callback
+    res.redirect('http://localhost:5174/auth/callback');
   } catch (error) {
     console.error('Admin Google auth error:', error);
     res.redirect('http://localhost:5174/login?error=auth_error');
@@ -173,9 +185,12 @@ router.post('/logout', authenticateAdmin, async (req, res) => {
     await prisma.auditLog.create({
       data: {
         userId: req.admin.id,
-        action: 'ADMIN_LOGOUT',
-        entityType: 'USER',
-        entityId: req.admin.id,
+        eventType: 'ADMIN_LOGOUT',
+        eventData: {
+          action: 'ADMIN_LOGOUT',
+          entityType: 'USER',
+          entityId: req.admin.id
+        }
       },
     });
 
@@ -191,7 +206,8 @@ router.get('/me', authenticateAdmin, (req, res) => {
   res.json({
     id: req.admin.id,
     email: req.admin.email,
-    name: req.admin.name,
+    firstName: req.admin.firstName,
+    lastName: req.admin.lastName,
     role: req.admin.role,
     organization: req.admin.organization,
   });

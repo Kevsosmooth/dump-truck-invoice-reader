@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,107 +9,191 @@ datasource db {
 }
 
 model User {
-  id                Int                  @id @default(autoincrement())
-  email             String               @unique
-  password          String?              // Null for OAuth users
-  googleId          String?              @unique
-  azureId           String?              @unique
-  firstName         String?
-  lastName          String?
-  profilePicture    String?
-  role              UserRole             @default(USER)
-  isActive          Boolean              @default(true)
-  credits           Int                  @default(0)
-  lastLoginAt       DateTime?
-  organization      Organization?
-  jobs              Job[]
-  transactions      Transaction[]
-  auditLogs         AuditLog[]
-  sessions          Session[]
+  id                 Int                 @id @default(autoincrement())
+  email              String              @unique
+  password           String?
+  googleId           String?             @unique
+  azureId            String?             @unique
+  firstName          String?
+  lastName           String?
+  profilePicture     String?
+  role               UserRole            @default(USER)
+  isActive           Boolean             @default(true)
+  credits            Int                 @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @default(now()) @updatedAt
+  auditLogs          AuditLog[]
+  jobs               Job[]
+  organization       Organization?
   processingSessions ProcessingSession[]
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  sessions           Session[]
+  transactions       Transaction[]
 }
 
 model Session {
-  id              String           @id @default(uuid())
-  userId          Int
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token           String           @unique
-  expiresAt       DateTime
-  createdAt       DateTime         @default(now())
-  
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
   @@index([userId])
   @@index([token])
+}
+
+model Organization {
+  id           Int           @id @default(autoincrement())
+  name         String
+  userId       Int           @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @default(now()) @updatedAt
+  customModels CustomModel[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model CustomModel {
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organizationId Int
+  name           String
+  azureModelId   String
+  description    String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @default(now()) @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Job {
+  id               String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId           Int
+  sessionId        String?
+  status           JobStatus          @default(QUEUED)
+  fileName         String
+  originalFileUrl  String?
+  processedFileUrl String?
+  resultFileUrl    String?
+  fileSize         Int
+  pageCount        Int                @default(0)
+  pagesProcessed   Int                @default(0)
+  creditsUsed      Int                @default(0)
+  modelId          String?
+  error            String?
+  metadata         Json?
+  queueJobId       String?
+  operationId      String?
+  operationStatus  String?
+  splitPageNumber  Int?
+  parentJobId      String?
+  extractedFields  Json?
+  newFileName      String?
+  pollingStartedAt DateTime?
+  lastPolledAt     DateTime?
+  blobUrl          String?
+  sasUrl           String?
+  sasExpiresAt     DateTime?
+  createdAt        DateTime           @default(now())
+  completedAt      DateTime?
+  expiresAt        DateTime?
+  fileAccessLogs   FileAccessLog[]
+  parentJob        Job?               @relation("ParentChild", fields: [parentJobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childJobs        Job[]              @relation("ParentChild")
+  session          ProcessingSession? @relation(fields: [sessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user             User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([sessionId])
+  @@index([operationId])
+  @@index([parentJobId])
+}
+
+model ProcessingSession {
+  id             String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId         Int
+  totalFiles     Int           @default(0)
+  totalPages     Int           @default(0)
+  processedPages Int           @default(0)
+  status         SessionStatus @default(UPLOADING)
+  blobPrefix     String
+  modelId        String?
+  zipUrl         String?
+  excelUrl       String?
+  postProcessingStatus String?
+  postProcessingStartedAt DateTime?
+  postProcessingCompletedAt DateTime?
+  postProcessedCount Int     @default(0)
+  createdAt      DateTime      @default(now())
+  expiresAt      DateTime
+  jobs           Job[]
+  user           User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Transaction {
+  id                    String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                Int
+  type                  TransactionType
+  amount                Int
+  credits               Int
+  stripePaymentIntentId String?           @unique
+  status                TransactionStatus @default(PENDING)
+  description           String?
+  metadata              Json?
+  createdAt             DateTime          @default(now())
+  user                  User              @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model AuditLog {
+  id                 String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId             Int?
+  eventType          String
+  eventData          Json
+  ipAddress          String?
+  userAgent          String?
+  azureCorrelationId String?
+  createdAt          DateTime @default(now())
+  user               User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([eventType])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model FileAccessLog {
+  id             String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  jobId          String
+  accessType     FileAccessType
+  ipAddress      String?
+  userAgent      String?
+  sasTokenExpiry DateTime?
+  createdAt      DateTime       @default(now())
+  job            Job            @relation(fields: [jobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([jobId])
+}
+
+model CleanupLog {
+  id                String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  startedAt         DateTime
+  completedAt       DateTime
+  sessionsProcessed Int           @default(0)
+  sessionsExpired   Int           @default(0)
+  jobsExpired       Int           @default(0)
+  blobsDeleted      Int           @default(0)
+  errors            String?
+  status            CleanupStatus @default(RUNNING)
+  createdAt         DateTime      @default(now())
+
+  @@index([status])
+  @@index([startedAt])
 }
 
 enum UserRole {
   USER
   ADMIN
-}
-
-model Organization {
-  id              Int              @id @default(autoincrement())
-  name            String
-  userId          Int              @unique
-  user            User             @relation(fields: [userId], references: [id])
-  customModels    CustomModel[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-}
-
-model CustomModel {
-  id              String           @id @default(uuid())
-  organizationId  Int
-  organization    Organization     @relation(fields: [organizationId], references: [id])
-  name            String
-  azureModelId    String
-  description     String?
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-}
-
-model Job {
-  id                String             @id @default(uuid())
-  userId            Int
-  user              User               @relation(fields: [userId], references: [id])
-  sessionId         String?
-  session           ProcessingSession? @relation(fields: [sessionId], references: [id])
-  status            JobStatus          @default(QUEUED)
-  fileName          String
-  originalFileUrl   String?
-  processedFileUrl  String?
-  resultFileUrl     String?
-  fileSize          Int
-  pageCount         Int                @default(0)
-  pagesProcessed    Int                @default(0)
-  creditsUsed       Int                @default(0)
-  modelId           String?
-  error             String?
-  metadata          Json?
-  queueJobId        String?            // Bull job ID
-  operationId       String?            // Azure operation ID for polling
-  operationStatus   String?            // polling, succeeded, failed
-  splitPageNumber   Int?               // Page number if split from multi-page PDF
-  parentJobId       String?            // Reference to parent job if this is a split page
-  parentJob         Job?               @relation("ParentChild", fields: [parentJobId], references: [id])
-  childJobs         Job[]              @relation("ParentChild")
-  extractedFields   Json?              // All extracted field data
-  newFileName       String?            // Renamed filename based on extraction
-  pollingStartedAt  DateTime?          // When polling began
-  lastPolledAt      DateTime?          // Last poll attempt
-  blobUrl           String?            // Azure blob storage URL
-  sasUrl            String?            // SAS URL for download
-  sasExpiresAt      DateTime?          // SAS expiration time
-  createdAt         DateTime           @default(now())
-  completedAt       DateTime?
-  expiresAt         DateTime?
-  fileAccessLogs    FileAccessLog[]
-  
-  @@index([sessionId])
-  @@index([operationId])
-  @@index([parentJobId])
 }
 
 enum JobStatus {
@@ -126,49 +207,15 @@ enum JobStatus {
   CANCELLED
 }
 
-model ProcessingSession {
-  id              String           @id @default(uuid())
-  userId          Int
-  user            User             @relation(fields: [userId], references: [id])
-  totalFiles      Int              @default(0)
-  totalPages      Int              @default(0)
-  processedPages  Int              @default(0)
-  status          SessionStatus    @default(UPLOADING)
-  blobPrefix      String           // Azure storage path prefix
-  modelId         String?          // Model to use for all documents
-  jobs            Job[]
-  zipUrl          String?          // URL to download ZIP when complete
-  excelUrl        String?          // URL to download Excel report
-  createdAt       DateTime         @default(now())
-  expiresAt       DateTime         // createdAt + 24 hours
-  
-  @@index([userId])
-  @@index([status])
-  @@index([expiresAt])
-}
-
 enum SessionStatus {
   ACTIVE
   UPLOADING
   PROCESSING
+  POST_PROCESSING
   COMPLETED
   FAILED
   EXPIRED
   CANCELLED
-}
-
-model Transaction {
-  id              String           @id @default(uuid())
-  userId          Int
-  user            User             @relation(fields: [userId], references: [id])
-  type            TransactionType
-  amount          Int              // In cents
-  credits         Int
-  stripePaymentIntentId String?    @unique
-  status          TransactionStatus @default(PENDING)
-  description     String?
-  metadata        Json?
-  createdAt       DateTime         @default(now())
 }
 
 enum TransactionType {
@@ -178,6 +225,7 @@ enum TransactionType {
   ADMIN_CREDIT
   ADMIN_DEBIT
   BONUS
+  MANUAL_ADJUSTMENT
 }
 
 enum TransactionStatus {
@@ -187,56 +235,11 @@ enum TransactionStatus {
   REFUNDED
 }
 
-model AuditLog {
-  id              String           @id @default(uuid())
-  userId          Int?
-  user            User?            @relation(fields: [userId], references: [id])
-  eventType       String
-  eventData       Json
-  ipAddress       String?
-  userAgent       String?
-  azureCorrelationId String?
-  createdAt       DateTime         @default(now())
-  
-  @@index([eventType])
-  @@index([userId])
-  @@index([createdAt])
-}
-
-model FileAccessLog {
-  id              String           @id @default(uuid())
-  jobId           String
-  job             Job              @relation(fields: [jobId], references: [id])
-  accessType      FileAccessType
-  ipAddress       String?
-  userAgent       String?
-  sasTokenExpiry  DateTime?
-  createdAt       DateTime         @default(now())
-  
-  @@index([jobId])
-}
-
 enum FileAccessType {
   DOWNLOAD
   DELETE
   EXPIRE
   VIEW
-}
-
-model CleanupLog {
-  id                String           @id @default(uuid())
-  startedAt         DateTime
-  completedAt       DateTime
-  sessionsProcessed Int              @default(0)
-  sessionsExpired   Int              @default(0)
-  jobsExpired       Int              @default(0)
-  blobsDeleted      Int              @default(0)
-  errors            String?          // JSON array of error messages
-  status            CleanupStatus    @default(RUNNING)
-  createdAt         DateTime         @default(now())
-  
-  @@index([status])
-  @@index([startedAt])
 }
 
 enum CleanupStatus {

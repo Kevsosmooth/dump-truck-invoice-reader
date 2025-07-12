@@ -82,12 +82,18 @@ router.get('/:sessionId', authenticateToken, async (req, res) => {
     ).length;
     const progress = totalJobs > 0 ? (completedJobs / totalJobs) * 100 : 0;
 
+    // Calculate post-processing progress
+    const postProcessingProgress = session.totalPages > 0 
+      ? (session.postProcessedCount / session.totalPages) * 100 
+      : 0;
+
     res.json({
       success: true,
       session: {
         ...session,
         isExpired,
         progress,
+        postProcessingProgress,
         stats: {
           total: totalJobs,
           completed: session.jobs.filter(j => j.status === 'completed').length,
@@ -265,6 +271,92 @@ router.get('/:sessionId/progress', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch session progress'
+    });
+  }
+});
+
+// GET /:sessionId/post-processing-status - Get post-processing status
+router.get('/:sessionId/post-processing-status', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+
+    const session = await prisma.processingSession.findFirst({
+      where: {
+        id: sessionId,
+        userId
+      },
+      select: {
+        id: true,
+        postProcessingStatus: true,
+        postProcessedCount: true,
+        totalPages: true,
+        postProcessingStartedAt: true,
+        postProcessingCompletedAt: true,
+        status: true,
+        jobs: {
+          select: {
+            id: true,
+            status: true
+          }
+        }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Session not found or access denied'
+      });
+    }
+
+    // Calculate percentage complete
+    const percentComplete = session.totalPages > 0 
+      ? Math.round((session.postProcessedCount / session.totalPages) * 100 * 100) / 100
+      : 0;
+
+    // Check if post-processing is complete
+    const isComplete = session.postProcessingStatus === 'COMPLETED';
+
+    // Estimate time remaining
+    let estimatedTimeRemaining = null;
+    if (session.postProcessingStatus === 'PROCESSING' && 
+        session.postProcessingStartedAt && 
+        session.postProcessedCount > 0 && 
+        session.postProcessedCount < session.totalPages) {
+      
+      const elapsedTime = new Date() - new Date(session.postProcessingStartedAt);
+      const avgTimePerPage = elapsedTime / session.postProcessedCount;
+      const remainingPages = session.totalPages - session.postProcessedCount;
+      estimatedTimeRemaining = Math.round((avgTimePerPage * remainingPages) / 1000); // in seconds
+    }
+
+    // Check if all jobs are completed before post-processing can start
+    const allJobsCompleted = session.jobs.every(job => 
+      ['completed', 'failed', 'cancelled'].includes(job.status)
+    );
+
+    res.json({
+      success: true,
+      postProcessingStatus: {
+        sessionId,
+        postProcessingStatus: session.postProcessingStatus || 'NOT_STARTED',
+        postProcessedCount: session.postProcessedCount,
+        totalPages: session.totalPages,
+        percentComplete,
+        isComplete,
+        estimatedTimeRemaining,
+        postProcessingStartedAt: session.postProcessingStartedAt,
+        postProcessingCompletedAt: session.postProcessingCompletedAt,
+        canStartPostProcessing: allJobsCompleted && session.status === 'completed',
+        sessionStatus: session.status
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching post-processing status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch post-processing status'
     });
   }
 });

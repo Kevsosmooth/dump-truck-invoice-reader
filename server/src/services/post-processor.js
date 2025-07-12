@@ -17,7 +17,12 @@ export async function postProcessJob(jobId) {
     });
 
     if (!job || job.status !== 'COMPLETED' || !job.extractedFields) {
-      console.log(`Job ${jobId} not ready for post-processing`);
+      console.log(`[POST-PROCESS] Job ${jobId} not ready for post-processing:`, {
+        exists: !!job,
+        status: job?.status,
+        hasExtractedFields: !!job?.extractedFields,
+        extractedFieldsType: typeof job?.extractedFields
+      });
       return;
     }
     
@@ -451,6 +456,21 @@ function cleanForFilename(str) {
  */
 export async function postProcessSession(sessionId) {
   try {
+    // Update session status to POST_PROCESSING at the start
+    // Try-catch for backward compatibility with sessions created before migration
+    try {
+      await prisma.processingSession.update({
+        where: { id: sessionId },
+        data: {
+          postProcessingStatus: 'POST_PROCESSING',
+          postProcessingStartedAt: new Date(),
+        }
+      });
+    } catch (error) {
+      console.warn(`[POST-PROCESSING] Could not update post-processing status for session ${sessionId}. Database might need migration.`);
+      console.warn(`[POST-PROCESSING] Error: ${error.message}`);
+    }
+
     const jobs = await prisma.job.findMany({
       where: {
         sessionId,
@@ -472,6 +492,18 @@ export async function postProcessSession(sessionId) {
       try {
         await postProcessJob(job.id);
         successCount++;
+        
+        // Increment postProcessedCount after each successful job
+        try {
+          await prisma.processingSession.update({
+            where: { id: sessionId },
+            data: {
+              postProcessedCount: { increment: 1 }
+            }
+          });
+        } catch (error) {
+          // Ignore error for backward compatibility
+        }
       } catch (error) {
         console.error(`[POST-PROCESSING] Failed to process job ${job.id}:`, error.message);
         failedCount++;
@@ -507,11 +539,69 @@ export async function postProcessSession(sessionId) {
     });
     console.log('========================================\n');
 
+    // Update session post-processing status to COMPLETED after successful post-processing
+    // Note: The session status might already be COMPLETED from sync-document-processor
+    try {
+      const sessionUpdate = {
+        postProcessingStatus: 'COMPLETED',
+        postProcessingCompletedAt: new Date(),
+      };
+      
+      // Only update status to COMPLETED if it's not already set
+      const currentSession = await prisma.processingSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true }
+      });
+      
+      if (currentSession.status !== 'COMPLETED') {
+        sessionUpdate.status = 'COMPLETED';
+      }
+      
+      await prisma.processingSession.update({
+        where: { id: sessionId },
+        data: sessionUpdate
+      });
+    } catch (error) {
+      console.warn(`[POST-PROCESSING] Could not update final status for session ${sessionId}. Database might need migration.`);
+    }
+
     // Generate Excel report and ZIP after all jobs are post-processed
     await generateSessionAssets(sessionId);
     
   } catch (error) {
     console.error(`Error post-processing session ${sessionId}:`, error);
+    
+    // Update post-processing status to FAILED on error
+    try {
+      const sessionUpdate = {};
+      
+      // Only try to update post-processing fields if they exist
+      try {
+        sessionUpdate.postProcessingStatus = 'FAILED';
+        sessionUpdate.postProcessingCompletedAt = new Date();
+      } catch (e) {
+        // Fields might not exist if migration hasn't been run
+      }
+      
+      // Only update main status to FAILED if the session isn't already marked as FAILED
+      const currentSession = await prisma.processingSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true }
+      });
+      
+      if (currentSession && currentSession.status !== 'FAILED' && currentSession.status !== 'COMPLETED') {
+        sessionUpdate.status = 'FAILED';
+      }
+      
+      if (Object.keys(sessionUpdate).length > 0) {
+        await prisma.processingSession.update({
+          where: { id: sessionId },
+          data: sessionUpdate
+        });
+      }
+    } catch (updateError) {
+      console.error(`Failed to update session status after error:`, updateError);
+    }
   }
 }
 

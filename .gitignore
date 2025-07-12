@@ -30,6 +30,8 @@ lerna-debug.log*
 .env*.local
 .env.development
 .env.production
+.env.prod
+.env.dev
 
 # IDE
 .vscode/

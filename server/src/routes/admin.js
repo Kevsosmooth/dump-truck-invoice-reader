@@ -200,4 +200,108 @@ router.get('/settings', async (req, res) => {
   }
 });
 
+// Get user transactions
+router.get('/users/:userId/transactions', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const transactions = await prisma.transaction.findMany({
+      where: { userId: Number(userId) },
+      orderBy: { createdAt: 'desc' },
+      take: 50 // Limit to last 50 transactions
+    });
+
+    return res.json(transactions);
+  } catch (error) {
+    console.error('Get user transactions error:', error);
+    return res.status(500).json({ error: 'Failed to fetch user transactions' });
+  }
+});
+
+// Adjust user credits
+router.post('/users/:userId/adjust-credits', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { action, amount, reason } = req.body;
+
+    if (!['add', 'remove'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Reason is required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const creditChange = action === 'add' ? amount : -amount;
+    const newCredits = Math.max(0, user.credits + creditChange);
+
+    // Update user credits
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { credits: newCredits },
+      include: {
+        _count: {
+          select: { jobs: true }
+        },
+        organization: true
+      }
+    });
+
+    // Create transaction record
+    await prisma.transaction.create({
+      data: {
+        userId: user.id,
+        type: action === 'add' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
+        amount: 0, // No monetary value for admin adjustments
+        credits: creditChange,
+        status: 'COMPLETED',
+        description: reason,
+        metadata: {
+          adminId: req.admin.id,
+          adminEmail: req.admin.email
+        }
+      }
+    });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'CREDIT_ADJUSTMENT',
+        eventData: {
+          targetUserId: user.id,
+          targetEmail: user.email,
+          action,
+          amount,
+          reason,
+          previousCredits: user.credits,
+          newCredits
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      }
+    });
+
+    return res.json({ 
+      user: updatedUser,
+      message: `Successfully ${action === 'add' ? 'added' : 'removed'} ${amount} credits` 
+    });
+  } catch (error) {
+    console.error('Adjust credits error:', error);
+    return res.status(500).json({ error: 'Failed to adjust credits' });
+  }
+});
+
 export default router;

@@ -22,7 +22,6 @@
       "Bash(mkdir:*)",
       "mcp__azure__azmcp-storage-blob-list",
       "Bash(find:*)",
-      "Bash(find:*)",
       "Bash(mv:*)",
       "Bash(rm:*)",
       "Bash(ls:*)",
@@ -49,7 +48,8 @@
       "mcp__supabase__execute_sql",
       "Bash(npm install:*)",
       "Bash(curl:*)",
-      "mcp__azure__azmcp-monitor-metrics-query"
+      "mcp__azure__azmcp-monitor-metrics-query",
+      "Bash(git reset:*)"
     ],
     "deny": []
   },

@@ -93,9 +93,9 @@ app.get('/', (req, res) => {
         status: '/auth/status'
       },
       adminAuth: {
-        login: '/admin/auth/login',
-        logout: '/admin/auth/logout',
-        me: '/admin/auth/me'
+        login: '/api/admin/auth/login',
+        logout: '/api/admin/auth/logout',
+        me: '/api/admin/auth/me'
       },
       api: {
         sessions: '/api/sessions',
@@ -142,6 +142,7 @@ import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import adminAuthRoutes from './routes/admin-auth.js';
 import adminAnalyticsRoutes from './routes/admin-analytics.js';
+import adminCreditsRoutes from './routes/admin-credits.js';
 import modelTrainingRoutes from './routes/model-training.js';
 import modelsRoutes from './routes/models.js';
 import sessionRoutes from './routes/sessions.js';
@@ -153,8 +154,9 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/admin/auth', adminAuthRoutes);
+app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/analytics', adminAnalyticsRoutes);
+app.use('/api/admin/credits', adminCreditsRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);

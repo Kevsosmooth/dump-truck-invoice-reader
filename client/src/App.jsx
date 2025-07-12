@@ -30,7 +30,8 @@ import {
   Brain,
   FileWarning,
   LogOut,
-  FastForward
+  FastForward,
+  RefreshCw
 } from 'lucide-react';
 
 // Helper function to format time ago
@@ -97,6 +98,8 @@ function App() {
   // Session management
   const [currentSession, setCurrentSession] = useState(null);
   const [sessionProgress, setSessionProgress] = useState({ current: 0, total: 0, status: 'idle' });
+  const [postProcessingStatus, setPostProcessingStatus] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   
   // Pagination and filtering states - moved here before fetchUserSessions
   const [allUserSessions, setAllUserSessions] = useState([]); // Store all sessions
@@ -354,25 +357,45 @@ function App() {
           }));
         }
         
-        // If session is complete, update the session but don't remove immediately
-        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-          if (data.status === 'COMPLETED') {
-            // Clear the current session to hide the processing alert
-            localStorage.removeItem('activeSession');
-            setCurrentSession(null);
-            
-            // Refresh session list to show completed session
-            fetchAllUserSessions();
-          } else {
-            // Failed session, remove it
-            localStorage.removeItem('activeSession');
-            setCurrentSession(null);
-            fetchAllUserSessions();
-          }
+        // If session is complete, check post-processing status
+        if (data.status === 'COMPLETED') {
+          checkPostProcessingStatus(sessionId);
+        } else if (data.status === 'FAILED') {
+          // For failed sessions, clear immediately
+          localStorage.removeItem('activeSession');
+          setCurrentSession(null);
+          setSessionProgress({ current: 0, total: 0, status: 'idle' });
+          setPostProcessingStatus(null);
+          fetchAllUserSessions();
         }
       }
     } catch (error) {
       console.error('Error checking session status:', error);
+    }
+  };
+
+  // Check post-processing status
+  const checkPostProcessingStatus = async (sessionId) => {
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/post-processing-status`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setPostProcessingStatus(data.status);
+        
+        // If post-processing is complete, clear the session after showing completion
+        if (data.status === 'COMPLETED') {
+          localStorage.removeItem('activeSession');
+          setTimeout(() => {
+            setCurrentSession(null);
+            setSessionProgress({ current: 0, total: 0, status: 'idle' });
+            setPostProcessingStatus(null);
+            fetchAllUserSessions();
+          }, 3000); // Show completion message for 3 seconds
+        }
+      }
+    } catch (error) {
+      console.error('Error checking post-processing status:', error);
     }
   };
 
@@ -386,6 +409,17 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [currentSession, sessionProgress.status]);
+
+  // Poll post-processing status when Azure processing is complete
+  useEffect(() => {
+    if (currentSession && sessionProgress.status === 'COMPLETED' && postProcessingStatus !== 'COMPLETED') {
+      const interval = setInterval(() => {
+        checkPostProcessingStatus(currentSession.serverId || currentSession.id);
+      }, 2000); // Check every 2 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [currentSession, sessionProgress.status, postProcessingStatus]);
 
   // Fetch model information when model changes
   useEffect(() => {
@@ -631,6 +665,7 @@ function App() {
 
   // Download session results
   const downloadSessionResults = async (sessionId) => {
+    setIsDownloading(true);
     try {
       const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/download`);
       
@@ -668,6 +703,8 @@ function App() {
     } catch (error) {
       console.error('Download error:', error);
       alert('Failed to download session results');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -1335,7 +1372,11 @@ function App() {
                                               size="icon"
                                               variant={expired ? "ghost" : "outline"}
                                               disabled={expired}
-                                              className={expired ? "opacity-50 cursor-not-allowed" : ""}
+                                              className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
+                                                expired 
+                                                  ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
+                                                  : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                                              }`}
                                               title={expired ? "Session expired - files no longer available" : expiringSoon ? "Session expiring soon" : "Download all files"}
                                               onClick={() => {
                                                 if (expired) {
@@ -1344,16 +1385,36 @@ function App() {
                                                   downloadSessionResults(session.id);
                                                 }
                                               }}
-                                              disabled={expired}
-                                              className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
-                                                expired 
-                                                  ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
-                                                  : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
-                                              }`}
-                                              title={expired ? 'Session expired' : 'Download results'}
                                             >
                                               <Download className="h-3 w-3 md:mr-1" />
                                               <span className="hidden md:inline">{expired ? 'Expired' : 'Download'}</span>
+                                            </Button>
+                                          )}
+                                          {import.meta.env.MODE !== 'production' && !expired && session.status === 'COMPLETED' && (session.postProcessingStatus !== 'COMPLETED' || !session.postProcessingStatus) && (
+                                            <Button
+                                              size="sm"
+                                              variant="destructive"
+                                              onClick={async () => {
+                                                try {
+                                                  const response = await fetchWithAuth(`${API_URL}/api/dev/reprocess-session/${session.id}`, {
+                                                    method: 'POST'
+                                                  });
+                                                  const result = await response.json();
+                                                  if (result.success) {
+                                                    alert('Reprocessing started! Please wait a moment and refresh.');
+                                                    fetchAllUserSessions();
+                                                  } else {
+                                                    alert(`Error: ${result.error}`);
+                                                  }
+                                                } catch (error) {
+                                                  alert('Failed to reprocess session');
+                                                }
+                                              }}
+                                              className="flex items-center gap-1 px-2 py-1 text-xs"
+                                              title="Reprocess files (Dev only)"
+                                            >
+                                              <RefreshCw className="h-3 w-3" />
+                                              <span className="hidden lg:inline">Reprocess</span>
                                             </Button>
                                           )}
                                           {import.meta.env.MODE !== 'production' && !expired && (
@@ -1464,19 +1525,46 @@ function App() {
                                   <Button
                                     size="sm"
                                     variant={expired ? "outline" : "default"}
-                                    disabled={expired}
+                                    disabled={expired || isDownloading || (session.status === 'COMPLETED' && session.postProcessingStatus !== 'COMPLETED')}
                                     className={`w-full ${expired ? "opacity-50 cursor-not-allowed" : ""}`}
                                     onClick={() => {
                                       if (expired) {
                                         alert('This session has expired. Files are no longer available for download.');
+                                      } else if (session.postProcessingStatus !== 'COMPLETED') {
+                                        alert('Files are still being prepared. Please wait...');
                                       } else {
                                         downloadSessionResults(session.id);
                                       }
                                     }}
                                   >
                                     <Download className="h-4 w-4 mr-2" />
-                                    {expired ? 'Expired' : 'Download Results'}
+                                    {expired ? 'Expired' : session.postProcessingStatus !== 'COMPLETED' ? 'Preparing...' : 'Download Results'}
                                   </Button>
+                                  {import.meta.env.MODE !== 'production' && !expired && (session.postProcessingStatus !== 'COMPLETED' || !session.postProcessingStatus) && (
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={async () => {
+                                        try {
+                                          const response = await fetchWithAuth(`${API_URL}/api/dev/reprocess-session/${session.id}`, {
+                                            method: 'POST'
+                                          });
+                                          const result = await response.json();
+                                          if (result.success) {
+                                            alert('Reprocessing started! Please wait a moment and refresh.');
+                                            fetchAllUserSessions();
+                                          } else {
+                                            alert(`Error: ${result.error}`);
+                                          }
+                                        } catch (error) {
+                                          alert('Failed to reprocess session');
+                                        }
+                                      }}
+                                    >
+                                      <RefreshCw className="h-4 w-4 mr-2" />
+                                      Reprocess
+                                    </Button>
+                                  )}
                                   {import.meta.env.MODE !== 'production' && !expired && (
                                     <Button
                                       size="sm"
@@ -1575,12 +1663,12 @@ function App() {
           {/* Sidebar */}
           <div className="space-y-4 tablet:space-y-5 desktop:space-y-6">
             {/* Session Progress */}
-            {currentSession && sessionProgress.status === 'processing' ? (
+            {currentSession && (sessionProgress.status === 'processing' || (sessionProgress.status === 'COMPLETED' && postProcessingStatus !== 'COMPLETED')) ? (
               <Card className="border-0 shadow-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Processing Session
+                    {sessionProgress.status === 'COMPLETED' ? 'Preparing Files' : 'Processing Session'}
                   </CardTitle>
                   <CardDescription className="text-indigo-100">
                     Session ID: {currentSession.id}
@@ -1596,17 +1684,24 @@ function App() {
                         </span>
                       </div>
                       <Progress 
-                        value={(sessionProgress.current / sessionProgress.total) * 100} 
+                        value={
+                          sessionProgress.status === 'COMPLETED' 
+                            ? 80 + (postProcessingStatus === 'PROCESSING' ? 10 : 0) + (postProcessingStatus === 'COMPLETED' ? 20 : 0)
+                            : (sessionProgress.current / sessionProgress.total) * 80
+                        } 
                         className="h-3 bg-indigo-200"
                       />
                     </div>
                     <p className="text-indigo-100 text-sm">
-                      Processing file {sessionProgress.current} of {sessionProgress.total}...
+                      {sessionProgress.status === 'COMPLETED' 
+                        ? 'Renaming files based on extracted data...'
+                        : `Processing file ${sessionProgress.current} of ${sessionProgress.total}...`
+                      }
                     </p>
                   </div>
                 </CardContent>
               </Card>
-            ) : currentSession && sessionProgress.status === 'completed' ? (
+            ) : currentSession && sessionProgress.status === 'completed' && postProcessingStatus === 'COMPLETED' ? (
               <Card className="border-0 shadow-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -1628,6 +1723,7 @@ function App() {
                     <Button 
                       className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold"
                       onClick={() => downloadSessionResults(currentSession.serverId || currentSession.id)}
+                      disabled={postProcessingStatus !== 'COMPLETED'}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       Download Results

@@ -16,7 +16,8 @@ export const authenticateAdmin = async (req, res, next) => {
     }
 
     // Verify token with admin-specific secret
-    const decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET);
+    const jwtSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET;
+    const decoded = jwt.verify(token, jwtSecret);
 
     // Get user from database
     const user = await prisma.user.findUnique({
@@ -24,7 +25,8 @@ export const authenticateAdmin = async (req, res, next) => {
       select: {
         id: true,
         email: true,
-        name: true,
+        firstName: true,
+        lastName: true,
         role: true,
         isActive: true,
         organization: {

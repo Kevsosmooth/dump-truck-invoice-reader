@@ -462,6 +462,52 @@ router.get('/session/:sessionId/download', authenticateToken, async (req, res) =
       });
     }
 
+    // Safety check: Ensure post-processing is complete before allowing download
+    // For backward compatibility, check if ANY jobs are missing newFileName
+    const jobsMissingNewFileName = session.jobs.filter(job => !job.newFileName);
+    const isPostProcessingComplete = session.postProcessingStatus === 'COMPLETED' || 
+                                   (session.postProcessingStatus === undefined && jobsMissingNewFileName.length === 0);
+    
+    if (!isPostProcessingComplete) {
+      console.log(`[DOWNLOAD] Attempt to download session ${sessionId} before post-processing complete. Status: ${session.postProcessingStatus}`);
+      
+      if (jobsMissingNewFileName.length > 0) {
+        console.log(`[DOWNLOAD] ${jobsMissingNewFileName.length} jobs are missing newFileName`);
+        console.log('[DOWNLOAD] Jobs missing newFileName:', jobsMissingNewFileName.map(j => j.fileName));
+      }
+      
+      return res.status(202).json({ 
+        error: 'Files still being prepared',
+        message: 'Your files are still being renamed and prepared for download. Please try again in a few moments.',
+        postProcessingStatus: session.postProcessingStatus || 'NOT_STARTED',
+        totalJobs: session.jobs.length,
+        jobsMissingNewFileName: jobsMissingNewFileName.length,
+        retryAfter: 5, // Suggest retry after 5 seconds
+        hint: 'The system is automatically renaming your files based on the extracted data. This usually takes a few seconds after processing completes.'
+      });
+    }
+
+    // Additional safety check: Verify all completed jobs have newFileName
+    const jobsWithoutNewFileName = session.jobs.filter(job => !job.newFileName);
+    if (jobsWithoutNewFileName.length > 0) {
+      console.log(`[DOWNLOAD] Warning: ${jobsWithoutNewFileName.length} completed jobs missing newFileName despite postProcessingStatus=COMPLETED`);
+      console.log('[DOWNLOAD] Jobs without newFileName:', jobsWithoutNewFileName.map(j => ({ id: j.id, fileName: j.fileName })));
+      
+      // Log this issue but allow download to proceed with fallback to original filenames
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'DOWNLOAD_WARNING',
+          details: {
+            sessionId,
+            message: 'Some files missing renamed versions',
+            jobsWithoutNewFileName: jobsWithoutNewFileName.map(j => j.id),
+            postProcessingStatus: session.postProcessingStatus
+          }
+        }
+      }).catch(error => console.error('[DOWNLOAD] Failed to create audit log:', error));
+    }
+
     console.log('\n========================================');
     console.log(`[DOWNLOAD] Creating ZIP for session ${sessionId}`);
     console.log(`[DOWNLOAD] Total completed jobs: ${session.jobs.length}`);
