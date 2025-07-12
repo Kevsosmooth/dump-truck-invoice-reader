@@ -115,18 +115,8 @@ function App() {
   // Real-time expiration tracking
   const [expiredSessions, setExpiredSessions] = useState(new Set());
   
-  // Notifications state
-  const [notifications, setNotifications] = useState([]);
-  
-  // Auto-remove notifications after 5 seconds
-  useEffect(() => {
-    if (notifications.length > 0) {
-      const timer = setTimeout(() => {
-        setNotifications(prev => prev.slice(1));
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [notifications]);
+  // Download status for showing in session table
+  const [downloadingSessions, setDownloadingSessions] = useState(new Set());
   const [expirationCheckInterval, setExpirationCheckInterval] = useState(null);
   
   // Development tier info
@@ -679,13 +669,7 @@ function App() {
   // Download session results
   const downloadSessionResults = async (sessionId) => {
     setIsDownloading(true);
-    
-    // Show notification that download is starting
-    setNotifications(prev => [...prev, {
-      id: Date.now(),
-      message: 'Preparing download...',
-      type: 'info'
-    }]);
+    setDownloadingSessions(prev => new Set(prev).add(sessionId));
     
     try {
       const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/download`);
@@ -693,26 +677,14 @@ function App() {
       if (response.status === 410) {
         // Session expired
         const errorData = await response.json();
-        setNotifications(prev => [...prev, {
-          id: Date.now(),
-          message: errorData.message || 'This session has expired. Files are no longer available for download.',
-          type: 'error'
-        }]);
+        alert(errorData.message || 'This session has expired. Files are no longer available for download.');
         
         // Refresh sessions to update the UI
         fetchAllUserSessions();
-        setIsDownloading(false);
         return;
       }
       
       if (response.ok) {
-        // Show download progress
-        setNotifications(prev => [...prev, {
-          id: Date.now(),
-          message: 'Download starting...',
-          type: 'info'
-        }]);
-        
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -723,13 +695,6 @@ function App() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        // Show success notification
-        setNotifications(prev => [...prev, {
-          id: Date.now(),
-          message: 'Download completed successfully!',
-          type: 'success'
-        }]);
-        
         // Clear session after download if it's the current session
         if (currentSession && currentSession.id === sessionId) {
           localStorage.removeItem('activeSession');
@@ -738,21 +703,18 @@ function App() {
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
-        setNotifications(prev => [...prev, {
-          id: Date.now(),
-          message: errorData.error || 'Failed to download session results',
-          type: 'error'
-        }]);
+        alert(errorData.error || 'Failed to download session results');
       }
     } catch (error) {
       console.error('Download error:', error);
-      setNotifications(prev => [...prev, {
-        id: Date.now(),
-        message: 'Failed to download session results. Please try again.',
-        type: 'error'
-      }]);
+      alert('Failed to download session results. Please try again.');
     } finally {
       setIsDownloading(false);
+      setDownloadingSessions(prev => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
     }
   };
 
@@ -859,35 +821,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 overflow-x-hidden">
-      {/* Notifications */}
-      <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
-        {notifications.map((notification) => (
-          <div
-            key={notification.id}
-            className={`p-4 rounded-lg shadow-lg animate-slide-in-right ${
-              notification.type === 'success' 
-                ? 'bg-green-50 dark:bg-green-900/90 text-green-900 dark:text-green-100 border border-green-200 dark:border-green-700' 
-                : notification.type === 'error'
-                ? 'bg-red-50 dark:bg-red-900/90 text-red-900 dark:text-red-100 border border-red-200 dark:border-red-700'
-                : 'bg-blue-50 dark:bg-blue-900/90 text-blue-900 dark:text-blue-100 border border-blue-200 dark:border-blue-700'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              {notification.type === 'success' && <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />}
-              {notification.type === 'error' && <XCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />}
-              {notification.type === 'info' && <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />}
-              <p className="text-sm font-medium">{notification.message}</p>
-              <button
-                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
-                className="ml-auto -mr-1 -mt-1 p-1 hover:opacity-70 transition-opacity"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-      
       {/* File Rename Builder Modal */}
       {showRenameBuilder && renameData && (
         <FileRenameBuilder
@@ -1407,11 +1340,24 @@ function App() {
                                       </td>
                                       <td className="px-3 md:px-4 lg:px-6 py-3 tablet:py-4">
                                         <div className="space-y-1">
-                                          <span className={`inline-flex items-center gap-1 px-1.5 tablet:px-2 py-0.5 tablet:py-1 text-xs font-semibold rounded-full ${statusColor}`}>
-                                            {session.status === 'PROCESSING' && (
-                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                          <span className={`inline-flex items-center gap-1 px-1.5 tablet:px-2 py-0.5 tablet:py-1 text-xs font-semibold rounded-full ${
+                                            downloadingSessions.has(session.id) 
+                                              ? 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20' 
+                                              : statusColor
+                                          }`}>
+                                            {downloadingSessions.has(session.id) ? (
+                                              <>
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                DOWNLOADING...
+                                              </>
+                                            ) : (
+                                              <>
+                                                {session.status === 'PROCESSING' && (
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                )}
+                                                {expired ? 'EXPIRED' : session.status}
+                                              </>
                                             )}
-                                            {expired ? 'EXPIRED' : session.status}
                                           </span>
                                           {/* Show progress bar under status on tablets */}
                                           {session.status === 'PROCESSING' && (
@@ -1448,23 +1394,29 @@ function App() {
                                             <Button
                                               size="icon"
                                               variant={expired ? "ghost" : "outline"}
-                                              disabled={expired}
+                                              disabled={expired || downloadingSessions.has(session.id)}
                                               className={`h-8 w-8 md:h-9 md:w-auto md:px-3 ${
                                                 expired 
                                                   ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50' 
+                                                  : downloadingSessions.has(session.id) 
+                                                  ? "opacity-70 cursor-wait"
                                                   : 'text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
                                               }`}
-                                              title={expired ? "Session expired - files no longer available" : expiringSoon ? "Session expiring soon" : "Download all files"}
+                                              title={expired ? "Session expired - files no longer available" : downloadingSessions.has(session.id) ? "Downloading..." : expiringSoon ? "Session expiring soon" : "Download all files"}
                                               onClick={() => {
                                                 if (expired) {
                                                   alert('This session has expired. Files are no longer available for download.');
-                                                } else {
+                                                } else if (!downloadingSessions.has(session.id)) {
                                                   downloadSessionResults(session.id);
                                                 }
                                               }}
                                             >
-                                              <Download className="h-3 w-3 md:mr-1" />
-                                              <span className="hidden md:inline">{expired ? 'Expired' : 'Download'}</span>
+                                              {downloadingSessions.has(session.id) ? (
+                                                <Loader2 className="h-3 w-3 animate-spin md:mr-1" />
+                                              ) : (
+                                                <Download className="h-3 w-3 md:mr-1" />
+                                              )}
+                                              <span className="hidden md:inline">{expired ? 'Expired' : downloadingSessions.has(session.id) ? 'Downloading...' : 'Download'}</span>
                                             </Button>
                                           )}
                                           {import.meta.env.MODE !== 'production' && !expired && session.status === 'COMPLETED' && (session.postProcessingStatus !== 'COMPLETED' || !session.postProcessingStatus) && (
@@ -1544,8 +1496,10 @@ function App() {
                                   <p className="text-xs text-gray-500 dark:text-gray-400">Session ID</p>
                                   <p className="font-mono text-sm text-gray-900 dark:text-gray-100">{session.id.slice(0, 8)}...</p>
                                 </div>
-                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                  expired 
+                                <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${
+                                  downloadingSessions.has(session.id)
+                                    ? 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20'
+                                    : expired 
                                     ? 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
                                     : {
                                       'COMPLETED': 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
@@ -1557,10 +1511,19 @@ function App() {
                                       'EXPIRED': 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20'
                                     }[session.status] || 'text-gray-600 bg-gray-100'
                                 }`}>
-                                  {session.status === 'PROCESSING' && (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  {downloadingSessions.has(session.id) ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      DOWNLOADING...
+                                    </>
+                                  ) : (
+                                    <>
+                                      {session.status === 'PROCESSING' && (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      )}
+                                      {expired ? 'EXPIRED' : session.status}
+                                    </>
                                   )}
-                                  {expired ? 'EXPIRED' : session.status}
                                 </span>
                               </div>
                               
@@ -1602,20 +1565,24 @@ function App() {
                                   <Button
                                     size="sm"
                                     variant={expired ? "outline" : "default"}
-                                    disabled={expired || isDownloading || (session.status === 'COMPLETED' && session.postProcessingStatus !== 'COMPLETED')}
-                                    className={`w-full ${expired ? "opacity-50 cursor-not-allowed" : ""}`}
+                                    disabled={expired || downloadingSessions.has(session.id) || (session.status === 'COMPLETED' && session.postProcessingStatus !== 'COMPLETED')}
+                                    className={`w-full ${expired ? "opacity-50 cursor-not-allowed" : downloadingSessions.has(session.id) ? "opacity-70 cursor-wait" : ""}`}
                                     onClick={() => {
                                       if (expired) {
                                         alert('This session has expired. Files are no longer available for download.');
                                       } else if (session.postProcessingStatus !== 'COMPLETED') {
                                         alert('Files are still being prepared. Please wait...');
-                                      } else {
+                                      } else if (!downloadingSessions.has(session.id)) {
                                         downloadSessionResults(session.id);
                                       }
                                     }}
                                   >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    {expired ? 'Expired' : session.postProcessingStatus !== 'COMPLETED' ? 'Preparing...' : 'Download Results'}
+                                    {downloadingSessions.has(session.id) ? (
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <Download className="h-4 w-4 mr-2" />
+                                    )}
+                                    {expired ? 'Expired' : downloadingSessions.has(session.id) ? 'Downloading...' : session.postProcessingStatus !== 'COMPLETED' ? 'Preparing...' : 'Download Results'}
                                   </Button>
                                   {import.meta.env.MODE !== 'production' && !expired && (session.postProcessingStatus !== 'COMPLETED' || !session.postProcessingStatus) && (
                                     <Button
@@ -1798,12 +1765,21 @@ function App() {
                       Ready for download
                     </p>
                     <Button 
-                      className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold"
+                      className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold disabled:opacity-70 disabled:cursor-wait"
                       onClick={() => downloadSessionResults(currentSession.serverId || currentSession.id)}
-                      disabled={postProcessingStatus !== 'COMPLETED'}
+                      disabled={postProcessingStatus !== 'COMPLETED' || isDownloading}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download Results
+                      {isDownloading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Downloading...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4 mr-2" />
+                          Download Results
+                        </>
+                      )}
                     </Button>
                   </div>
                 </CardContent>

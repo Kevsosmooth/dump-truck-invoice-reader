@@ -69,7 +69,7 @@ export function LoginPage() {
     setFormData({
       ...formData,
       email: 'test@example.com',
-      password: 'test123'
+      password: 'password123'
     });
   };
 
