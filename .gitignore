@@ -27,11 +27,14 @@ lerna-debug.log*
 
 # Local env files
 .env
+.env.*
 .env*.local
 .env.development
 .env.production
 .env.prod
 .env.dev
+.env.backup
+.env.supabase
 
 # IDE
 .vscode/
