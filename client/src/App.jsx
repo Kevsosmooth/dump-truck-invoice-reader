@@ -874,7 +874,7 @@ function App() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Model:</span>
-                <span className="font-medium text-xs text-gray-900 dark:text-gray-100">{selectedModel}</span>
+                <span className="font-medium text-xs text-gray-900 dark:text-gray-100">SILVI READER 2.0</span>
               </div>
             </div>
 
@@ -1117,7 +1117,7 @@ function App() {
                         <SelectItem value="Silvi_Reader_Full_2.0">
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="text-xs">Custom</Badge>
-                            <span>Silvi Reader Full 2.0</span>
+                            <span>SILVI READER 2.0</span>
                           </div>
                         </SelectItem>
                       </SelectContent>
