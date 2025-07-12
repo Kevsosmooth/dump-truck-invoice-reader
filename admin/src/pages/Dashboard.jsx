@@ -44,14 +44,25 @@ export default function Dashboard() {
   const activityLimit = 5; // Show 5 items per page
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['adminStats', activityPage],
+    queryKey: ['adminStats'],
     queryFn: async () => {
       const response = await api.get('/admin/analytics/overview', {
-        params: { page: activityPage, limit: activityLimit }
+        params: { page: 1, limit: 10 } // Get basic stats without pagination
       });
       return response.data;
     },
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const { data: activityData, isLoading: activityLoading } = useQuery({
+    queryKey: ['recentActivity', activityPage],
+    queryFn: async () => {
+      const response = await api.get('/admin/activity/recent', {
+        params: { page: activityPage, limit: activityLimit }
+      });
+      return response.data;
+    },
+    keepPreviousData: true, // Smooth pagination
   });
 
   const { data: healthData } = useQuery({
@@ -121,7 +132,7 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-4">
-            {stats?.recentActivity?.map((activity) => (
+            {activityData?.recentActivity?.map((activity) => (
               <div key={activity.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
                 <div className="h-2 w-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg" />
                 <div className="flex-1">
@@ -132,16 +143,16 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-            {(!stats?.recentActivity || stats.recentActivity.length === 0) && (
+            {(!activityData?.recentActivity || activityData.recentActivity.length === 0) && (
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No recent activity</p>
             )}
           </div>
           
           {/* Pagination Controls */}
-          {stats?.recentActivityPagination && stats.recentActivityPagination.totalPages > 1 && (
+          {activityData?.pagination && activityData.pagination.totalPages > 1 && (
             <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Page {stats.recentActivityPagination.page} of {stats.recentActivityPagination.totalPages}
+                Page {activityData.pagination.page} of {activityData.pagination.totalPages}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -157,8 +168,8 @@ export default function Dashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setActivityPage(prev => Math.min(stats.recentActivityPagination.totalPages, prev + 1))}
-                  disabled={activityPage === stats.recentActivityPagination.totalPages}
+                  onClick={() => setActivityPage(prev => Math.min(activityData.pagination.totalPages, prev + 1))}
+                  disabled={activityPage === activityData.pagination.totalPages}
                   className="gap-1"
                 >
                   Next

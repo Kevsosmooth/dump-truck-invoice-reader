@@ -17,6 +17,7 @@
     "prisma:studio:prod": "prisma studio",
     "cleanup": "node src/scripts/run-cleanup.js",
     "cleanup:test": "node src/scripts/run-cleanup.js 1",
+    "migrate:env-to-db": "node scripts/migrate-env-to-db.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
