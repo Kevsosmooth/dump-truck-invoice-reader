@@ -219,9 +219,11 @@ model FieldConfiguration {
   modelConfigId     String
   azureFieldName    String
   customFieldName   String?
+  fieldType         String?
   isEnabled         Boolean              @default(true)
+  isRequired        Boolean              @default(false)
   defaultValue      String?
-  defaultValueType  FieldDefaultType     @default(STRING)
+  defaultValueType  FieldDefaultType     @default(EMPTY)
   fieldOrder        Int                  @default(0)
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @default(now()) @updatedAt
@@ -255,12 +257,10 @@ model ModelAccess {
 }
 
 enum FieldDefaultType {
-  STRING
-  NUMBER
-  DATE
-  BOOLEAN
+  STATIC
   TODAY
   CURRENT_USER
+  ORGANIZATION
   EMPTY
 }
 

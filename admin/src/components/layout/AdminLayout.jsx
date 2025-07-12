@@ -7,7 +7,8 @@ import {
   Settings,
   LogOut,
   Menu,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Users', href: '/users', icon: Users },
   { name: 'Credits', href: '/credits', icon: CreditCard },
+  { name: 'Models', href: '/models', icon: FileText },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

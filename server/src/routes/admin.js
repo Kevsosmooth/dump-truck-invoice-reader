@@ -218,6 +218,313 @@ router.get('/users/:userId/transactions', async (req, res) => {
   }
 });
 
+// Models management endpoints
+
+// Get all models (Azure + configured)
+router.get('/models', async (req, res) => {
+  try {
+    const { search = '', filter = 'all' } = req.query;
+
+    // Get configured models from database
+    const configuredModels = await prisma.modelConfiguration.findMany({
+      where: {
+        OR: [
+          { customName: { contains: search, mode: 'insensitive' } },
+          { azureModelId: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } }
+        ],
+        ...(filter === 'active' && { isActive: true }),
+        ...(filter === 'inactive' && { isActive: false }),
+        ...(filter === 'public' && { isPublic: true }),
+        ...(filter === 'private' && { isPublic: false })
+      },
+      include: {
+        creator: {
+          select: { email: true, firstName: true, lastName: true }
+        },
+        _count: {
+          select: { modelAccess: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // TODO: Fetch Azure models from Azure API
+    // For now, return a mock list
+    const azureModels = [
+      {
+        id: 'prebuilt-invoice',
+        name: 'Prebuilt Invoice',
+        description: 'Extract key information from invoices',
+        isAzureModel: true,
+        status: 'available'
+      },
+      {
+        id: 'prebuilt-receipt',
+        name: 'Prebuilt Receipt',
+        description: 'Extract data from receipts',
+        isAzureModel: true,
+        status: 'available'
+      }
+    ];
+
+    // Merge configured models with Azure models
+    const allModels = [
+      ...configuredModels.map(model => ({
+        ...model,
+        isConfigured: true,
+        usageCount: model._count.modelAccess
+      })),
+      ...azureModels.filter(azureModel => 
+        !configuredModels.some(config => config.azureModelId === azureModel.id)
+      )
+    ];
+
+    return res.json({ models: allModels });
+  } catch (error) {
+    console.error('Get models error:', error);
+    return res.status(500).json({ error: 'Failed to fetch models' });
+  }
+});
+
+// Sync with Azure to discover new models
+router.post('/models/sync', async (req, res) => {
+  try {
+    // TODO: Implement Azure API call to fetch available models
+    // For now, return mock data
+    const newModels = [
+      {
+        id: 'custom-model-1',
+        name: 'Custom Model 1',
+        description: 'A custom trained model',
+        status: 'succeeded'
+      }
+    ];
+
+    // Log the sync action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODELS_SYNCED',
+        eventData: {
+          action: 'SYNC_MODELS',
+          newModelsCount: newModels.length
+        }
+      }
+    });
+
+    return res.json({ 
+      message: 'Models synced successfully',
+      newModels 
+    });
+  } catch (error) {
+    console.error('Sync models error:', error);
+    return res.status(500).json({ error: 'Failed to sync models' });
+  }
+});
+
+// Configure a model
+router.post('/models/:modelId/configure', async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const { customName, description, isActive, isPublic } = req.body;
+
+    if (!customName) {
+      return res.status(400).json({ error: 'Custom name is required' });
+    }
+
+    const modelConfig = await prisma.modelConfiguration.upsert({
+      where: {
+        azureModelId_createdBy: {
+          azureModelId: modelId,
+          createdBy: req.admin.id
+        }
+      },
+      update: {
+        customName,
+        description,
+        isActive: isActive ?? true,
+        isPublic: isPublic ?? false
+      },
+      create: {
+        azureModelId: modelId,
+        customName,
+        description,
+        isActive: isActive ?? true,
+        isPublic: isPublic ?? false,
+        createdBy: req.admin.id
+      },
+      include: {
+        creator: {
+          select: { email: true, firstName: true, lastName: true }
+        }
+      }
+    });
+
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_CONFIGURED',
+        eventData: {
+          action: 'CONFIGURE_MODEL',
+          modelId: modelConfig.id,
+          azureModelId: modelId,
+          changes: req.body
+        }
+      }
+    });
+
+    return res.json({ model: modelConfig });
+  } catch (error) {
+    console.error('Configure model error:', error);
+    return res.status(500).json({ error: 'Failed to configure model' });
+  }
+});
+
+// Update model configuration
+router.patch('/models/:configId', async (req, res) => {
+  try {
+    const { configId } = req.params;
+    const { customName, description, isActive, isPublic } = req.body;
+
+    const modelConfig = await prisma.modelConfiguration.update({
+      where: { id: configId },
+      data: {
+        ...(customName && { customName }),
+        ...(description !== undefined && { description }),
+        ...(isActive !== undefined && { isActive }),
+        ...(isPublic !== undefined && { isPublic })
+      },
+      include: {
+        creator: {
+          select: { email: true, firstName: true, lastName: true }
+        },
+        _count: {
+          select: { modelAccess: true }
+        }
+      }
+    });
+
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_UPDATED',
+        eventData: {
+          action: 'UPDATE_MODEL',
+          modelId: modelConfig.id,
+          changes: req.body
+        }
+      }
+    });
+
+    return res.json({ model: modelConfig });
+  } catch (error) {
+    console.error('Update model error:', error);
+    return res.status(500).json({ error: 'Failed to update model' });
+  }
+});
+
+// Get model statistics
+router.get('/models/:configId/stats', async (req, res) => {
+  try {
+    const { configId } = req.params;
+
+    const [config, usageStats] = await Promise.all([
+      prisma.modelConfiguration.findUnique({
+        where: { id: configId },
+        include: {
+          _count: {
+            select: { modelAccess: true }
+          }
+        }
+      }),
+      prisma.job.groupBy({
+        by: ['status'],
+        where: {
+          modelId: configId
+        },
+        _count: {
+          _all: true
+        }
+      })
+    ]);
+
+    if (!config) {
+      return res.status(404).json({ error: 'Model configuration not found' });
+    }
+
+    const stats = {
+      totalUsers: config._count.modelAccess,
+      totalJobs: usageStats.reduce((sum, stat) => sum + stat._count._all, 0),
+      jobsByStatus: usageStats.reduce((acc, stat) => {
+        acc[stat.status] = stat._count._all;
+        return acc;
+      }, {}),
+      successRate: usageStats.find(s => s.status === 'COMPLETED')?._count._all || 0
+    };
+
+    return res.json({ stats });
+  } catch (error) {
+    console.error('Get model stats error:', error);
+    return res.status(500).json({ error: 'Failed to fetch model statistics' });
+  }
+});
+
+// Manage model access
+router.post('/models/:configId/access', async (req, res) => {
+  try {
+    const { configId } = req.params;
+    const { userId, organizationId, canRead, canUse, canEdit, expiresAt } = req.body;
+
+    if (!userId && !organizationId) {
+      return res.status(400).json({ error: 'Either userId or organizationId is required' });
+    }
+
+    const access = await prisma.modelAccess.create({
+      data: {
+        modelConfigId: configId,
+        userId,
+        organizationId,
+        canRead: canRead ?? true,
+        canUse: canUse ?? true,
+        canEdit: canEdit ?? false,
+        grantedBy: req.admin.id,
+        expiresAt: expiresAt ? new Date(expiresAt) : null
+      },
+      include: {
+        user: {
+          select: { email: true, firstName: true, lastName: true }
+        },
+        organization: {
+          select: { name: true }
+        }
+      }
+    });
+
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_ACCESS_GRANTED',
+        eventData: {
+          action: 'GRANT_MODEL_ACCESS',
+          modelConfigId: configId,
+          targetUserId: userId,
+          targetOrgId: organizationId,
+          permissions: { canRead, canUse, canEdit }
+        }
+      }
+    });
+
+    return res.json({ access });
+  } catch (error) {
+    console.error('Grant model access error:', error);
+    return res.status(500).json({ error: 'Failed to grant model access' });
+  }
+});
+
 // Adjust user credits
 router.post('/users/:userId/adjust-credits', async (req, res) => {
   try {

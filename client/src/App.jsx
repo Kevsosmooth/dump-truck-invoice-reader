@@ -121,10 +121,42 @@ function App() {
   
   // Development tier info
   const [tierInfo, setTierInfo] = useState(null);
+  
+  // Session loading states
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [hasSessionsCheck, setHasSessionsCheck] = useState(null); // null = not checked, true/false = result
+
+  // Quick check if user has any sessions
+  const checkHasSessions = async () => {
+    if (!token) return;
+    
+    try {
+      // Quick check - just get count or first session
+      const url = new URL(`${API_URL}/api/jobs/sessions`);
+      url.searchParams.append('limit', 1);
+      url.searchParams.append('offset', 0);
+      
+      const response = await fetchWithAuth(url.toString());
+      
+      if (response.ok) {
+        const data = await response.json();
+        const hasSessions = data.sessions && data.sessions.length > 0;
+        setHasSessionsCheck(hasSessions);
+        return hasSessions;
+      }
+    } catch (error) {
+      console.error('Error checking for sessions:', error);
+    }
+    
+    setHasSessionsCheck(false);
+    return false;
+  };
 
   // Fetch all user sessions (only called once or on refresh)
   const fetchAllUserSessions = async () => {
     if (!token) return;
+    
+    setSessionsLoading(true);
     
     try {
       // Fetch all sessions without pagination
@@ -144,6 +176,8 @@ function App() {
       }
     } catch (error) {
       console.error('Error fetching sessions:', error);
+    } finally {
+      setSessionsLoading(false);
     }
   };
 
@@ -199,10 +233,16 @@ function App() {
     setUserSessions(paginatedSessions);
   };
 
-  // Fetch all sessions only when user logs in
+  // Fetch all sessions only when user logs in - two-step approach
   useEffect(() => {
     if (user && token) {
-      fetchAllUserSessions();
+      // First, quickly check if user has any sessions
+      checkHasSessions().then(hasSessions => {
+        if (hasSessions) {
+          // If they have sessions, then fetch all of them
+          fetchAllUserSessions();
+        }
+      });
     }
   }, [user, token]);
   
@@ -244,7 +284,11 @@ function App() {
       if (newExpiredSessions.size !== expiredSessions.size) {
         setExpiredSessions(newExpiredSessions);
         // Refresh sessions from server to get updated status
-        fetchAllUserSessions();
+        checkHasSessions().then(hasSessions => {
+          if (hasSessions) {
+            fetchAllUserSessions();
+          }
+        });
       }
     };
     
@@ -1168,11 +1212,29 @@ function App() {
                     <Clock className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                     Recent Processing Sessions
                   </CardTitle>
-                  {/* Development only - Clear sessions button */}
-                  {import.meta.env.MODE !== 'production' && userSessions.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    {/* Refresh button */}
                     <Button
                       size="sm"
-                      variant="destructive"
+                      variant="ghost"
+                      onClick={() => {
+                        setHasSessionsCheck(null);
+                        checkHasSessions().then(hasSessions => {
+                          if (hasSessions) {
+                            fetchAllUserSessions();
+                          }
+                        });
+                      }}
+                      disabled={sessionsLoading}
+                      className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${sessionsLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                    {/* Development only - Clear sessions button */}
+                    {import.meta.env.MODE !== 'production' && userSessions.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
                       onClick={async () => {
                         if (window.confirm('Are you sure you want to delete ALL your sessions? This cannot be undone!')) {
                           try {
@@ -1200,7 +1262,8 @@ function App() {
                       <XCircle className="h-3 w-3 mr-1" />
                       Clear All Sessions
                     </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
                 {/* Status Filters */}
                 <div className="flex flex-wrap gap-2 sm:gap-3 mt-4">
@@ -1254,7 +1317,13 @@ function App() {
                 </div>
               </CardHeader>
               <CardContent>
-                {userSessions.length === 0 && recentJobs.length === 0 && !currentSession ? (
+                {sessionsLoading && hasSessionsCheck ? (
+                  // Show loading state only if we know user has sessions
+                  <div className="text-center py-8">
+                    <Loader2 className="h-12 w-12 mx-auto mb-3 text-gray-400 dark:text-gray-500 animate-spin" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Loading your sessions...</p>
+                  </div>
+                ) : userSessions.length === 0 && recentJobs.length === 0 && !currentSession ? (
                   <div className="text-center py-8 text-gray-500">
                     <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
                     <p className="text-sm text-gray-500 dark:text-gray-400">No documents processed yet</p>

@@ -2,75 +2,21 @@ import express from 'express';
 import { authenticateAdmin } from '../../middleware/admin-auth.js';
 import modelManager from '../../services/model-manager.js';
 import prisma from '../../config/prisma.js';
-import { z } from 'zod';
 
 const router = express.Router();
 
-// Validation schemas
-const configureModelSchema = z.object({
-  modelId: z.string().min(1),
-  displayName: z.string().min(1),
-  description: z.string().optional(),
-  isPublic: z.boolean().default(false),
-  organizationId: z.string().optional(),
-});
-
-const updateModelSchema = z.object({
-  displayName: z.string().min(1).optional(),
-  description: z.string().optional(),
-  isActive: z.boolean().optional(),
-  isPublic: z.boolean().optional(),
-  organizationId: z.string().nullable().optional(),
-});
-
-const fieldConfigurationSchema = z.object({
-  fields: z.array(z.object({
-    fieldName: z.string().min(1),
-    customDisplayName: z.string().optional(),
-    isEnabled: z.boolean().default(true),
-    isRequired: z.boolean().default(false),
-    defaultValue: z.string().nullable().optional(),
-    defaultValueType: z.enum(['STATIC', 'CURRENT_DATE', 'CURRENT_DATETIME', 'FUNCTION']).default('STATIC'),
-    displayOrder: z.number().int().min(0).default(999),
-    validationRules: z.record(z.any()).optional(),
-  })),
-});
-
-const modelAccessSchema = z.object({
-  userIds: z.array(z.string()).optional(),
-  organizationId: z.string().nullable().optional(),
-  isPublic: z.boolean().optional(),
-});
-
-// List all Azure models
+// List all models (Azure + configured)
 router.get('/', authenticateAdmin, async (req, res) => {
   try {
+    const { search = '', filter = 'all' } = req.query;
+    
+    // Get Azure models
     const azureModels = await modelManager.listAzureModels();
     
-    res.json({
-      models: azureModels,
-      count: azureModels.length,
-    });
-  } catch (error) {
-    console.error('Error listing Azure models:', error);
-    res.status(500).json({ 
-      error: 'Failed to list Azure models',
-      details: error.message 
-    });
-  }
-});
-
-// List configured models (from database)
-router.get('/configured', authenticateAdmin, async (req, res) => {
-  try {
-    const { includeInactive = false } = req.query;
-    
-    const where = includeInactive ? {} : { isActive: true };
-    
-    const models = await prisma.customModel.findMany({
-      where,
+    // Get configured models from database
+    const configuredModels = await prisma.modelConfiguration.findMany({
       include: {
-        owner: {
+        creator: {
           select: {
             id: true,
             email: true,
@@ -78,20 +24,22 @@ router.get('/configured', authenticateAdmin, async (req, res) => {
             lastName: true,
           },
         },
-        organization: {
+        fieldConfigs: {
           select: {
             id: true,
-            name: true,
           },
         },
-        fieldConfigurations: {
+        modelAccess: {
           select: {
             id: true,
+            userId: true,
+            organizationId: true,
           },
         },
         _count: {
           select: {
-            jobs: true,
+            fieldConfigs: true,
+            modelAccess: true,
           },
         },
       },
@@ -101,29 +49,77 @@ router.get('/configured', authenticateAdmin, async (req, res) => {
       ],
     });
     
-    const configuredModels = models.map(model => ({
-      id: model.id,
-      modelId: model.modelId,
-      displayName: model.displayName,
-      description: model.description,
-      isActive: model.isActive,
-      isPublic: model.isPublic,
-      owner: model.owner,
-      organization: model.organization,
-      fieldConfigCount: model.fieldConfigurations.length,
-      jobCount: model._count.jobs,
-      createdAt: model.createdAt,
-      updatedAt: model.updatedAt,
-    }));
+    // Create a map of configured models
+    const configuredMap = new Map();
+    configuredModels.forEach(model => {
+      configuredMap.set(model.azureModelId, model);
+    });
+    
+    // Combine Azure models with configuration data
+    const combinedModels = azureModels.map(azureModel => {
+      const configured = configuredMap.get(azureModel.modelId);
+      const usageCount = configured?.modelAccess?.length || 0;
+      const jobCount = 0; // TODO: Get from jobs table
+      
+      return {
+        id: configured?.id || null,
+        azureModelId: azureModel.modelId,
+        name: azureModel.modelId,
+        customName: configured?.customName || azureModel.description || azureModel.modelId,
+        description: configured?.description || azureModel.description,
+        isActive: configured?.isActive ?? false,
+        isPublic: configured?.isPublic ?? false,
+        isConfigured: !!configured,
+        isAzureModel: true,
+        status: azureModel.status || 'ready',
+        createdAt: azureModel.createdDateTime,
+        updatedAt: configured?.updatedAt || azureModel.createdDateTime,
+        creator: configured?.creator,
+        fieldConfigCount: configured?._count?.fieldConfigs || 0,
+        usageCount,
+        _count: {
+          jobs: jobCount,
+        },
+      };
+    });
+    
+    // Filter models based on search and filter
+    let filteredModels = combinedModels;
+    
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredModels = filteredModels.filter(model => 
+        model.customName.toLowerCase().includes(searchLower) ||
+        model.azureModelId.toLowerCase().includes(searchLower) ||
+        model.description?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    if (filter !== 'all') {
+      switch (filter) {
+        case 'active':
+          filteredModels = filteredModels.filter(m => m.isActive);
+          break;
+        case 'inactive':
+          filteredModels = filteredModels.filter(m => !m.isActive);
+          break;
+        case 'public':
+          filteredModels = filteredModels.filter(m => m.isPublic);
+          break;
+        case 'private':
+          filteredModels = filteredModels.filter(m => !m.isPublic);
+          break;
+      }
+    }
     
     res.json({
-      models: configuredModels,
-      count: configuredModels.length,
+      models: filteredModels,
+      count: filteredModels.length,
     });
   } catch (error) {
-    console.error('Error listing configured models:', error);
+    console.error('Error listing models:', error);
     res.status(500).json({ 
-      error: 'Failed to list configured models',
+      error: 'Failed to list models',
       details: error.message 
     });
   }
@@ -132,12 +128,28 @@ router.get('/configured', authenticateAdmin, async (req, res) => {
 // Sync models with Azure
 router.post('/sync', authenticateAdmin, async (req, res) => {
   try {
-    const syncResults = await modelManager.syncModelsWithDatabase();
+    const azureModels = await modelManager.listAzureModels();
+    const newModels = [];
+    
+    for (const azureModel of azureModels) {
+      // Check if already configured
+      const existing = await prisma.modelConfiguration.findFirst({
+        where: { azureModelId: azureModel.modelId }
+      });
+      
+      if (!existing) {
+        newModels.push(azureModel);
+      }
+    }
     
     res.json({
       success: true,
-      results: syncResults,
-      message: `Synced ${syncResults.created} new models, updated ${syncResults.updated} existing models`,
+      message: `Found ${azureModels.length} Azure models, ${newModels.length} are new`,
+      newModels: newModels.map(m => ({
+        modelId: m.modelId,
+        description: m.description,
+        createdDateTime: m.createdDateTime,
+      })),
     });
   } catch (error) {
     console.error('Error syncing models:', error);
@@ -148,47 +160,44 @@ router.post('/sync', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Configure a new model
-router.post('/configure', authenticateAdmin, async (req, res) => {
+// Configure a model
+router.post('/:modelId/configure', authenticateAdmin, async (req, res) => {
   try {
-    const validatedData = configureModelSchema.parse(req.body);
+    const { modelId } = req.params;
+    const { displayName, description, isPublic = false } = req.body;
     
-    // Check if model already exists
-    const existingModel = await prisma.customModel.findUnique({
-      where: { modelId: validatedData.modelId },
+    // Check if already configured
+    const existing = await prisma.modelConfiguration.findFirst({
+      where: { 
+        azureModelId: modelId,
+        createdBy: req.admin.id
+      }
     });
     
-    if (existingModel) {
+    if (existing) {
       return res.status(409).json({ 
         error: 'Model already configured',
-        modelId: validatedData.modelId 
+        modelId 
       });
     }
     
-    // Get model details from Azure
-    const azureDetails = await modelManager.getAzureModelDetails(validatedData.modelId);
-    
-    // Create model configuration
-    const model = await prisma.customModel.create({
+    // Create configuration
+    const config = await prisma.modelConfiguration.create({
       data: {
-        ...validatedData,
-        ownerId: req.admin.id,
-        azureDetails,
+        azureModelId: modelId,
+        customName: displayName || modelId,
+        description,
         isActive: true,
+        isPublic,
+        createdBy: req.admin.id,
       },
       include: {
-        owner: {
+        creator: {
           select: {
             id: true,
             email: true,
             firstName: true,
             lastName: true,
-          },
-        },
-        organization: {
-          select: {
-            id: true,
-            name: true,
           },
         },
       },
@@ -197,38 +206,30 @@ router.post('/configure', authenticateAdmin, async (req, res) => {
     // Log the action
     await prisma.auditLog.create({
       data: {
-        action: 'MODEL_CONFIGURED',
-        entityType: 'CustomModel',
-        entityId: model.id,
         userId: req.admin.id,
-        details: {
-          modelId: model.modelId,
-          displayName: model.displayName,
+        eventType: 'MODEL_CONFIGURED',
+        eventData: {
+          modelId,
+          configId: config.id,
+          displayName: config.customName,
         },
       },
     });
     
     res.status(201).json({
       success: true,
-      model: {
-        id: model.id,
-        modelId: model.modelId,
-        displayName: model.displayName,
-        description: model.description,
-        isActive: model.isActive,
-        isPublic: model.isPublic,
-        owner: model.owner,
-        organization: model.organization,
+      config: {
+        id: config.id,
+        azureModelId: config.azureModelId,
+        customName: config.customName,
+        description: config.description,
+        isActive: config.isActive,
+        isPublic: config.isPublic,
+        creator: config.creator,
+        createdAt: config.createdAt,
       },
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: 'Validation error',
-        details: error.errors 
-      });
-    }
-    
     console.error('Error configuring model:', error);
     res.status(500).json({ 
       error: 'Failed to configure model',
@@ -238,24 +239,30 @@ router.post('/configure', authenticateAdmin, async (req, res) => {
 });
 
 // Update model configuration
-router.put('/:modelId', authenticateAdmin, async (req, res) => {
+router.patch('/:configId', authenticateAdmin, async (req, res) => {
   try {
-    const { modelId } = req.params;
-    const validatedData = updateModelSchema.parse(req.body);
+    const { configId } = req.params;
+    const { displayName, description, isActive, isPublic } = req.body;
     
-    const model = await prisma.customModel.findUnique({
-      where: { modelId },
+    const config = await prisma.modelConfiguration.findUnique({
+      where: { id: configId },
     });
     
-    if (!model) {
-      return res.status(404).json({ error: 'Model not found' });
+    if (!config) {
+      return res.status(404).json({ error: 'Model configuration not found' });
     }
     
-    const updatedModel = await prisma.customModel.update({
-      where: { id: model.id },
-      data: validatedData,
+    const updateData = {};
+    if (displayName !== undefined) updateData.customName = displayName;
+    if (description !== undefined) updateData.description = description;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (isPublic !== undefined) updateData.isPublic = isPublic;
+    
+    const updated = await prisma.modelConfiguration.update({
+      where: { id: configId },
+      data: updateData,
       include: {
-        owner: {
+        creator: {
           select: {
             id: true,
             email: true,
@@ -263,16 +270,10 @@ router.put('/:modelId', authenticateAdmin, async (req, res) => {
             lastName: true,
           },
         },
-        organization: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
         _count: {
           select: {
-            fieldConfigurations: true,
-            jobs: true,
+            fieldConfigs: true,
+            modelAccess: true,
           },
         },
       },
@@ -281,38 +282,20 @@ router.put('/:modelId', authenticateAdmin, async (req, res) => {
     // Log the action
     await prisma.auditLog.create({
       data: {
-        action: 'MODEL_UPDATED',
-        entityType: 'CustomModel',
-        entityId: model.id,
         userId: req.admin.id,
-        details: validatedData,
+        eventType: 'MODEL_UPDATED',
+        eventData: {
+          configId,
+          changes: updateData,
+        },
       },
     });
     
     res.json({
       success: true,
-      model: {
-        id: updatedModel.id,
-        modelId: updatedModel.modelId,
-        displayName: updatedModel.displayName,
-        description: updatedModel.description,
-        isActive: updatedModel.isActive,
-        isPublic: updatedModel.isPublic,
-        owner: updatedModel.owner,
-        organization: updatedModel.organization,
-        fieldConfigCount: updatedModel._count.fieldConfigurations,
-        jobCount: updatedModel._count.jobs,
-        updatedAt: updatedModel.updatedAt,
-      },
+      config: updated,
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: 'Validation error',
-        details: error.errors 
-      });
-    }
-    
     console.error('Error updating model:', error);
     res.status(500).json({ 
       error: 'Failed to update model',
@@ -321,141 +304,81 @@ router.put('/:modelId', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Delete model configuration
-router.delete('/:modelId', authenticateAdmin, async (req, res) => {
-  try {
-    const { modelId } = req.params;
-    
-    const model = await prisma.customModel.findUnique({
-      where: { modelId },
-      include: {
-        _count: {
-          select: {
-            jobs: true,
-          },
-        },
-      },
-    });
-    
-    if (!model) {
-      return res.status(404).json({ error: 'Model not found' });
-    }
-    
-    // Check if model has been used
-    if (model._count.jobs > 0) {
-      return res.status(400).json({ 
-        error: 'Cannot delete model with processing history',
-        jobCount: model._count.jobs,
-        hint: 'Deactivate the model instead of deleting it',
-      });
-    }
-    
-    // Delete model (cascades to field configurations)
-    await prisma.customModel.delete({
-      where: { id: model.id },
-    });
-    
-    // Log the action
-    await prisma.auditLog.create({
-      data: {
-        action: 'MODEL_DELETED',
-        entityType: 'CustomModel',
-        entityId: model.id,
-        userId: req.admin.id,
-        details: {
-          modelId: model.modelId,
-          displayName: model.displayName,
-        },
-      },
-    });
-    
-    res.json({
-      success: true,
-      message: 'Model configuration deleted',
-    });
-  } catch (error) {
-    console.error('Error deleting model:', error);
-    res.status(500).json({ 
-      error: 'Failed to delete model',
-      details: error.message 
-    });
-  }
-});
-
 // Get field configurations for a model
-router.get('/:modelId/fields', authenticateAdmin, async (req, res) => {
+router.get('/:configId/fields', authenticateAdmin, async (req, res) => {
   try {
-    const { modelId } = req.params;
+    const { configId } = req.params;
     
-    const model = await prisma.customModel.findUnique({
-      where: { modelId },
+    const modelConfig = await prisma.modelConfiguration.findUnique({
+      where: { id: configId },
       include: {
-        fieldConfigurations: {
+        fieldConfigs: {
           orderBy: [
-            { displayOrder: 'asc' },
-            { fieldName: 'asc' },
+            { fieldOrder: 'asc' },
+            { azureFieldName: 'asc' },
           ],
         },
       },
     });
     
-    if (!model) {
-      return res.status(404).json({ error: 'Model not found' });
+    if (!modelConfig) {
+      return res.status(404).json({ error: 'Model configuration not found' });
     }
     
-    // Get Azure model details
-    const azureDetails = await modelManager.getAzureModelDetails(modelId);
-    const azureFields = azureDetails?.docTypes?.[modelId]?.fieldSchema || {};
+    // Get Azure model details to get all available fields
+    const azureDetails = await modelManager.getAzureModelDetails(modelConfig.azureModelId);
+    const azureFields = azureDetails?.docTypes?.[modelConfig.azureModelId]?.fieldSchema || {};
     
     // Combine database configs with Azure field info
     const fields = Object.entries(azureFields).map(([fieldName, azureField]) => {
-      const dbConfig = model.fieldConfigurations.find(fc => fc.fieldName === fieldName);
+      const dbConfig = modelConfig.fieldConfigs.find(fc => fc.azureFieldName === fieldName);
       
       return {
-        fieldName,
-        azureType: azureField.type || 'string',
+        azureFieldName: fieldName,
+        fieldType: azureField.type || 'string',
         azureDescription: azureField.description,
-        azureRequired: azureField.required || false,
+        isRequired: azureField.required || false,
         configured: !!dbConfig,
         ...(dbConfig && {
           id: dbConfig.id,
-          customDisplayName: dbConfig.customDisplayName,
+          customFieldName: dbConfig.customFieldName,
           isEnabled: dbConfig.isEnabled,
-          isRequired: dbConfig.isRequired,
           defaultValue: dbConfig.defaultValue,
           defaultValueType: dbConfig.defaultValueType,
-          displayOrder: dbConfig.displayOrder,
-          validationRules: dbConfig.validationRules,
+          fieldOrder: dbConfig.fieldOrder,
         }),
       };
     });
     
     // Add any database-only fields (shouldn't happen, but just in case)
     const azureFieldNames = new Set(Object.keys(azureFields));
-    const dbOnlyFields = model.fieldConfigurations
-      .filter(fc => !azureFieldNames.has(fc.fieldName))
+    const dbOnlyFields = modelConfig.fieldConfigs
+      .filter(fc => !azureFieldNames.has(fc.azureFieldName))
       .map(fc => ({
-        fieldName: fc.fieldName,
-        azureType: 'string',
+        azureFieldName: fc.azureFieldName,
+        fieldType: fc.fieldType || 'string',
         azureDescription: null,
-        azureRequired: false,
+        isRequired: fc.isRequired || false,
         configured: true,
         id: fc.id,
-        customDisplayName: fc.customDisplayName,
+        customFieldName: fc.customFieldName,
         isEnabled: fc.isEnabled,
-        isRequired: fc.isRequired,
         defaultValue: fc.defaultValue,
         defaultValueType: fc.defaultValueType,
-        displayOrder: fc.displayOrder,
-        validationRules: fc.validationRules,
+        fieldOrder: fc.fieldOrder,
       }));
     
     fields.push(...dbOnlyFields);
     
     res.json({
-      modelId: model.modelId,
-      displayName: model.displayName,
-      fields: fields.sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999)),
+      modelConfigId: modelConfig.id,
+      azureModelId: modelConfig.azureModelId,
+      displayName: modelConfig.customName,
+      fields: fields.sort((a, b) => {
+        const orderA = a.fieldOrder ?? 999;
+        const orderB = b.fieldOrder ?? 999;
+        return orderA - orderB;
+      }),
       fieldCount: fields.length,
       configuredCount: fields.filter(f => f.configured).length,
     });
@@ -469,50 +392,50 @@ router.get('/:modelId/fields', authenticateAdmin, async (req, res) => {
 });
 
 // Update field configurations for a model
-router.put('/:modelId/fields', authenticateAdmin, async (req, res) => {
+router.put('/:configId/fields', authenticateAdmin, async (req, res) => {
   try {
-    const { modelId } = req.params;
-    const validatedData = fieldConfigurationSchema.parse(req.body);
+    const { configId } = req.params;
+    const { fields } = req.body;
     
-    const model = await prisma.customModel.findUnique({
-      where: { modelId },
+    const modelConfig = await prisma.modelConfiguration.findUnique({
+      where: { id: configId },
     });
     
-    if (!model) {
-      return res.status(404).json({ error: 'Model not found' });
+    if (!modelConfig) {
+      return res.status(404).json({ error: 'Model configuration not found' });
     }
     
     // Update fields in a transaction
     const results = await prisma.$transaction(async (tx) => {
       const updateResults = [];
       
-      for (const fieldConfig of validatedData.fields) {
+      for (const fieldConfig of fields) {
         const result = await tx.fieldConfiguration.upsert({
           where: {
-            customModelId_fieldName: {
-              customModelId: model.id,
-              fieldName: fieldConfig.fieldName,
+            modelConfigId_azureFieldName: {
+              modelConfigId: modelConfig.id,
+              azureFieldName: fieldConfig.azureFieldName,
             },
           },
           update: {
-            customDisplayName: fieldConfig.customDisplayName,
+            customFieldName: fieldConfig.customFieldName,
+            fieldType: fieldConfig.fieldType,
             isEnabled: fieldConfig.isEnabled,
             isRequired: fieldConfig.isRequired,
             defaultValue: fieldConfig.defaultValue,
             defaultValueType: fieldConfig.defaultValueType,
-            displayOrder: fieldConfig.displayOrder,
-            validationRules: fieldConfig.validationRules || {},
+            fieldOrder: fieldConfig.fieldOrder,
           },
           create: {
-            customModelId: model.id,
-            fieldName: fieldConfig.fieldName,
-            customDisplayName: fieldConfig.customDisplayName,
+            modelConfigId: modelConfig.id,
+            azureFieldName: fieldConfig.azureFieldName,
+            customFieldName: fieldConfig.customFieldName,
+            fieldType: fieldConfig.fieldType,
             isEnabled: fieldConfig.isEnabled,
             isRequired: fieldConfig.isRequired,
             defaultValue: fieldConfig.defaultValue,
             defaultValueType: fieldConfig.defaultValueType,
-            displayOrder: fieldConfig.displayOrder,
-            validationRules: fieldConfig.validationRules || {},
+            fieldOrder: fieldConfig.fieldOrder,
           },
         });
         updateResults.push(result);
@@ -524,13 +447,12 @@ router.put('/:modelId/fields', authenticateAdmin, async (req, res) => {
     // Log the action
     await prisma.auditLog.create({
       data: {
-        action: 'FIELDS_UPDATED',
-        entityType: 'CustomModel',
-        entityId: model.id,
         userId: req.admin.id,
-        details: {
-          modelId: model.modelId,
-          fieldsUpdated: validatedData.fields.length,
+        eventType: 'FIELDS_UPDATED',
+        eventData: {
+          configId: modelConfig.id,
+          modelId: modelConfig.azureModelId,
+          fieldsUpdated: fields.length,
         },
       },
     });
@@ -541,13 +463,6 @@ router.put('/:modelId/fields', authenticateAdmin, async (req, res) => {
       message: `Updated ${results.length} field configurations`,
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: 'Validation error',
-        details: error.errors 
-      });
-    }
-    
     console.error('Error updating field configurations:', error);
     res.status(500).json({ 
       error: 'Failed to update field configurations',
@@ -556,35 +471,181 @@ router.put('/:modelId/fields', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Manage model access
-router.post('/:modelId/access', authenticateAdmin, async (req, res) => {
+// Get model stats
+router.get('/:configId/stats', authenticateAdmin, async (req, res) => {
   try {
-    const { modelId } = req.params;
-    const validatedData = modelAccessSchema.parse(req.body);
+    const { configId } = req.params;
     
-    const model = await prisma.customModel.findUnique({
-      where: { modelId },
+    const config = await prisma.modelConfiguration.findUnique({
+      where: { id: configId },
+      include: {
+        _count: {
+          select: {
+            fieldConfigs: true,
+            modelAccess: true,
+          },
+        },
+      },
     });
     
-    if (!model) {
-      return res.status(404).json({ error: 'Model not found' });
+    if (!config) {
+      return res.status(404).json({ error: 'Model configuration not found' });
     }
     
-    const updateData = {};
+    // Get job count for this model
+    const jobCount = await prisma.job.count({
+      where: { modelId: config.azureModelId },
+    });
     
-    if (validatedData.isPublic !== undefined) {
-      updateData.isPublic = validatedData.isPublic;
+    // Get usage by date for the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const jobs = await prisma.job.findMany({
+      where: {
+        modelId: config.azureModelId,
+        createdAt: { gte: thirtyDaysAgo },
+      },
+      select: {
+        createdAt: true,
+        creditsUsed: true,
+        status: true,
+      },
+    });
+    
+    // Group by date
+    const usageByDate = {};
+    jobs.forEach(job => {
+      const date = job.createdAt.toISOString().split('T')[0];
+      if (!usageByDate[date]) {
+        usageByDate[date] = {
+          date,
+          count: 0,
+          credits: 0,
+          successful: 0,
+          failed: 0,
+        };
+      }
+      usageByDate[date].count++;
+      usageByDate[date].credits += job.creditsUsed || 0;
+      if (job.status === 'COMPLETED') {
+        usageByDate[date].successful++;
+      } else if (job.status === 'FAILED') {
+        usageByDate[date].failed++;
+      }
+    });
+    
+    // Convert to array and fill gaps
+    const usage = [];
+    const currentDate = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(currentDate);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      usage.push(usageByDate[dateStr] || {
+        date: dateStr,
+        count: 0,
+        credits: 0,
+        successful: 0,
+        failed: 0,
+      });
     }
     
-    if (validatedData.organizationId !== undefined) {
-      updateData.organizationId = validatedData.organizationId;
-    }
+    res.json({
+      configId: config.id,
+      azureModelId: config.azureModelId,
+      displayName: config.customName,
+      stats: {
+        totalJobs: jobCount,
+        activeUsers: config._count.modelAccess,
+        configuredFields: config._count.fieldConfigs,
+        isPublic: config.isPublic,
+        isActive: config.isActive,
+      },
+      usage,
+    });
+  } catch (error) {
+    console.error('Error getting model stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to get model statistics',
+      details: error.message 
+    });
+  }
+});
+
+// Manage model access
+router.get('/:configId/access', authenticateAdmin, async (req, res) => {
+  try {
+    const { configId } = req.params;
     
-    const updatedModel = await prisma.customModel.update({
-      where: { id: model.id },
-      data: updateData,
+    const access = await prisma.modelAccess.findMany({
+      where: { modelConfigId: configId },
       include: {
-        owner: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: { grantedAt: 'desc' },
+    });
+    
+    res.json({
+      configId,
+      access,
+      count: access.length,
+    });
+  } catch (error) {
+    console.error('Error getting model access:', error);
+    res.status(500).json({ 
+      error: 'Failed to get model access',
+      details: error.message 
+    });
+  }
+});
+
+// Grant model access
+router.post('/:configId/access', authenticateAdmin, async (req, res) => {
+  try {
+    const { configId } = req.params;
+    const { userId, organizationId, canUse = true, canEdit = false, expiresAt } = req.body;
+    
+    if (!userId && !organizationId) {
+      return res.status(400).json({ 
+        error: 'Either userId or organizationId must be provided' 
+      });
+    }
+    
+    const config = await prisma.modelConfiguration.findUnique({
+      where: { id: configId },
+    });
+    
+    if (!config) {
+      return res.status(404).json({ error: 'Model configuration not found' });
+    }
+    
+    const access = await prisma.modelAccess.create({
+      data: {
+        modelConfigId: configId,
+        userId: userId || null,
+        organizationId: organizationId || null,
+        canRead: true,
+        canUse,
+        canEdit,
+        grantedBy: req.admin.id,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+      },
+      include: {
+        user: {
           select: {
             id: true,
             email: true,
@@ -604,60 +665,72 @@ router.post('/:modelId/access', authenticateAdmin, async (req, res) => {
     // Log the action
     await prisma.auditLog.create({
       data: {
-        action: 'MODEL_ACCESS_UPDATED',
-        entityType: 'CustomModel',
-        entityId: model.id,
         userId: req.admin.id,
-        details: validatedData,
+        eventType: 'MODEL_ACCESS_GRANTED',
+        eventData: {
+          configId,
+          accessId: access.id,
+          userId,
+          organizationId,
+        },
       },
     });
     
-    res.json({
+    res.status(201).json({
       success: true,
-      model: {
-        id: updatedModel.id,
-        modelId: updatedModel.modelId,
-        displayName: updatedModel.displayName,
-        isPublic: updatedModel.isPublic,
-        owner: updatedModel.owner,
-        organization: updatedModel.organization,
-      },
-      message: 'Model access updated',
+      access,
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: 'Validation error',
-        details: error.errors 
-      });
-    }
-    
-    console.error('Error updating model access:', error);
+    console.error('Error granting model access:', error);
     res.status(500).json({ 
-      error: 'Failed to update model access',
+      error: 'Failed to grant model access',
       details: error.message 
     });
   }
 });
 
-// Get model usage statistics
-router.get('/:modelId/stats', authenticateAdmin, async (req, res) => {
+// Revoke model access
+router.delete('/:configId/access/:accessId', authenticateAdmin, async (req, res) => {
   try {
-    const { modelId } = req.params;
-    const { startDate, endDate } = req.query;
+    const { configId, accessId } = req.params;
     
-    const stats = await modelManager.getModelUsageStats(modelId, startDate, endDate);
+    const access = await prisma.modelAccess.findFirst({
+      where: {
+        id: accessId,
+        modelConfigId: configId,
+      },
+    });
     
-    res.json(stats);
-  } catch (error) {
-    console.error('Error getting model stats:', error);
-    
-    if (error.message === 'Model not found') {
-      return res.status(404).json({ error: 'Model not found' });
+    if (!access) {
+      return res.status(404).json({ error: 'Access not found' });
     }
     
+    await prisma.modelAccess.delete({
+      where: { id: accessId },
+    });
+    
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_ACCESS_REVOKED',
+        eventData: {
+          configId,
+          accessId,
+          userId: access.userId,
+          organizationId: access.organizationId,
+        },
+      },
+    });
+    
+    res.json({
+      success: true,
+      message: 'Access revoked',
+    });
+  } catch (error) {
+    console.error('Error revoking model access:', error);
     res.status(500).json({ 
-      error: 'Failed to get model statistics',
+      error: 'Failed to revoke model access',
       details: error.message 
     });
   }

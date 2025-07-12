@@ -8,6 +8,7 @@ import Credits from '@/pages/Credits';
 import CreditHistory from '@/pages/CreditHistory';
 import Analytics from '@/pages/Analytics';
 import Settings from '@/pages/Settings';
+import Models from '@/pages/Models';
 import AdminLayout from '@/components/layout/AdminLayout';
 import '@/styles/dialog-fixes.css';
 
@@ -46,6 +47,7 @@ function AppRoutes() {
                 <Route path="/users" element={<Users />} />
                 <Route path="/credits" element={<Credits />} />
                 <Route path="/credits/history" element={<CreditHistory />} />
+                <Route path="/models" element={<Models />} />
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
