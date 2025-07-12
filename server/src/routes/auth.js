@@ -194,7 +194,7 @@ router.get('/google/callback',
         }
         
         // Redirect to admin auth handler
-        return res.redirect(`/admin/auth/google/callback?userId=${user.id}`);
+        return res.redirect(`/api/admin/auth/google/callback?userId=${user.id}`);
       }
       
       // Regular client login

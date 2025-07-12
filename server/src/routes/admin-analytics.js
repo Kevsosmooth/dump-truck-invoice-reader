@@ -88,7 +88,8 @@ router.get('/overview', async (req, res) => {
           user: {
             select: {
               email: true,
-              name: true
+              firstName: true,
+              lastName: true
             }
           }
         }
@@ -112,7 +113,7 @@ router.get('/overview', async (req, res) => {
     const formattedActivity = recentActivity.map(log => ({
       id: log.id,
       description: formatActivityDescription(log),
-      user: log.user?.name || log.user?.email || 'System',
+      user: log.user ? `${log.user.firstName || ''} ${log.user.lastName || ''}`.trim() || log.user.email : 'System',
       timestamp: log.createdAt,
       action: log.action,
       entityType: log.entityType
@@ -123,10 +124,10 @@ router.get('/overview', async (req, res) => {
       // Average API response time from recent jobs
       prisma.$queryRaw`
         SELECT 
-          AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) * 1000) as avg_ms
+          AVG(EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) * 1000) as avg_ms
         FROM "Job"
-        WHERE status = 'completed' 
-          AND created_at >= ${new Date(Date.now() - 24 * 60 * 60 * 1000)}
+        WHERE status = 'COMPLETED' 
+          AND "createdAt" >= ${new Date(Date.now() - 24 * 60 * 60 * 1000)}
       `,
       
       // Get total storage used (count of jobs * average size estimate)
@@ -170,11 +171,11 @@ router.get('/users', async (req, res) => {
       // User growth over time
       prisma.$queryRaw`
         SELECT 
-          DATE(created_at) as date,
+          DATE("createdAt") as date,
           COUNT(*) as count
         FROM "User"
-        WHERE created_at >= ${startDate}
-        GROUP BY DATE(created_at)
+        WHERE "createdAt" >= ${startDate}
+        GROUP BY DATE("createdAt")
         ORDER BY date
       `,
       
@@ -198,11 +199,11 @@ router.get('/users', async (req, res) => {
       // Top users by credits used
       prisma.$queryRaw`
         SELECT 
-          u.id, u.email, u.name,
+          u.id, u.email, u."firstName", u."lastName",
           COALESCE(SUM(t.amount), 0) as credits_used
         FROM "User" u
-        LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'DEDUCT'
-        GROUP BY u.id, u.email, u.name
+        LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'USAGE'
+        GROUP BY u.id, u.email, u."firstName", u."lastName"
         ORDER BY credits_used DESC
         LIMIT 10
       `
