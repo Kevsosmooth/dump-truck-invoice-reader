@@ -114,6 +114,19 @@ function App() {
   
   // Real-time expiration tracking
   const [expiredSessions, setExpiredSessions] = useState(new Set());
+  
+  // Notifications state
+  const [notifications, setNotifications] = useState([]);
+  
+  // Auto-remove notifications after 5 seconds
+  useEffect(() => {
+    if (notifications.length > 0) {
+      const timer = setTimeout(() => {
+        setNotifications(prev => prev.slice(1));
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notifications]);
   const [expirationCheckInterval, setExpirationCheckInterval] = useState(null);
   
   // Development tier info
@@ -666,20 +679,40 @@ function App() {
   // Download session results
   const downloadSessionResults = async (sessionId) => {
     setIsDownloading(true);
+    
+    // Show notification that download is starting
+    setNotifications(prev => [...prev, {
+      id: Date.now(),
+      message: 'Preparing download...',
+      type: 'info'
+    }]);
+    
     try {
       const response = await fetchWithAuth(`${API_URL}/api/jobs/session/${sessionId}/download`);
       
       if (response.status === 410) {
         // Session expired
         const errorData = await response.json();
-        alert(errorData.message || 'This session has expired. Files are no longer available for download.');
+        setNotifications(prev => [...prev, {
+          id: Date.now(),
+          message: errorData.message || 'This session has expired. Files are no longer available for download.',
+          type: 'error'
+        }]);
         
         // Refresh sessions to update the UI
         fetchAllUserSessions();
+        setIsDownloading(false);
         return;
       }
       
       if (response.ok) {
+        // Show download progress
+        setNotifications(prev => [...prev, {
+          id: Date.now(),
+          message: 'Download starting...',
+          type: 'info'
+        }]);
+        
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -690,6 +723,13 @@ function App() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
+        // Show success notification
+        setNotifications(prev => [...prev, {
+          id: Date.now(),
+          message: 'Download completed successfully!',
+          type: 'success'
+        }]);
+        
         // Clear session after download if it's the current session
         if (currentSession && currentSession.id === sessionId) {
           localStorage.removeItem('activeSession');
@@ -698,11 +738,19 @@ function App() {
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
-        alert(errorData.error || 'Failed to download session results');
+        setNotifications(prev => [...prev, {
+          id: Date.now(),
+          message: errorData.error || 'Failed to download session results',
+          type: 'error'
+        }]);
       }
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download session results');
+      setNotifications(prev => [...prev, {
+        id: Date.now(),
+        message: 'Failed to download session results. Please try again.',
+        type: 'error'
+      }]);
     } finally {
       setIsDownloading(false);
     }
@@ -811,6 +859,35 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 overflow-x-hidden">
+      {/* Notifications */}
+      <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
+        {notifications.map((notification) => (
+          <div
+            key={notification.id}
+            className={`p-4 rounded-lg shadow-lg animate-slide-in-right ${
+              notification.type === 'success' 
+                ? 'bg-green-50 dark:bg-green-900/90 text-green-900 dark:text-green-100 border border-green-200 dark:border-green-700' 
+                : notification.type === 'error'
+                ? 'bg-red-50 dark:bg-red-900/90 text-red-900 dark:text-red-100 border border-red-200 dark:border-red-700'
+                : 'bg-blue-50 dark:bg-blue-900/90 text-blue-900 dark:text-blue-100 border border-blue-200 dark:border-blue-700'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              {notification.type === 'success' && <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" />}
+              {notification.type === 'error' && <XCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />}
+              {notification.type === 'info' && <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />}
+              <p className="text-sm font-medium">{notification.message}</p>
+              <button
+                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
+                className="ml-auto -mr-1 -mt-1 p-1 hover:opacity-70 transition-opacity"
+              >
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      
       {/* File Rename Builder Modal */}
       {showRenameBuilder && renameData && (
         <FileRenameBuilder

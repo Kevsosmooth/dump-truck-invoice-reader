@@ -1,153 +1,155 @@
 import express from 'express';
-import { DocumentModelAdministrationClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
+import { authenticateToken } from '../middleware/auth.js';
+import modelManager from '../services/model-manager.js';
+import { processDocumentFromUrl } from '../services/azure-document-ai.js';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
 
 const router = express.Router();
 
-const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
-const apiKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
-
-if (!endpoint || !apiKey) {
-  console.error('Azure Document Intelligence credentials not configured');
-}
-
-// Initialize the Document Model Administration client for model management
-const adminClient = endpoint && apiKey ? new DocumentModelAdministrationClient(endpoint, new AzureKeyCredential(apiKey)) : null;
-
-// Store last extracted fields in memory (in production, use database)
-let lastExtractedFields = {};
-
-// Update last extracted fields (call this from document processing)
-router.post('/:modelId/fields', async (req, res) => {
-  const { modelId } = req.params;
-  const { fields } = req.body;
-  
-  if (fields) {
-    lastExtractedFields[modelId] = Object.keys(fields).map(fieldName => ({
-      name: fieldName,
-      type: typeof fields[fieldName]?.value === 'number' ? 'number' : 
-            fields[fieldName]?.value instanceof Date ? 'date' : 'string',
-      description: fieldName.replace(/_/g, ' ')
+// Get list of models available to current user
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const organizationId = req.user.organizationId;
+    
+    const models = await modelManager.getUserAvailableModels(userId, organizationId);
+    
+    // Transform models for client
+    const clientModels = models.map(model => ({
+      id: model.modelId,
+      displayName: model.displayName,
+      description: model.description,
+      isPublic: model.isPublic,
+      isActive: model.isActive,
+      fieldCount: model.fieldConfigurations?.length || 0,
+      owner: model.owner ? {
+        name: model.owner.name,
+        email: model.owner.email
+      } : null,
+      organization: model.organization ? {
+        name: model.organization.name
+      } : null
     }));
-  }
-  
-  res.json({ success: true });
-});
-
-// Get raw model info directly from Azure API (for debugging)
-router.get('/:modelId/raw', async (req, res) => {
-  try {
-    const { modelId } = req.params;
     
-    console.log('Fetching RAW model info for:', modelId);
-    
-    // Call Azure API directly
-    const apiUrl = `${endpoint}/formrecognizer/documentModels/${modelId}?api-version=2023-07-31`;
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        'Ocp-Apim-Subscription-Key': apiKey
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Azure API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    res.json(data);
-    
-  } catch (error) {
-    console.error('Error getting raw model info:', error);
-    res.status(500).json({ 
-      error: 'Failed to get raw model information',
-      details: error.message
-    });
-  }
-});
-
-// Get model information
-router.get('/:modelId/info', async (req, res) => {
-  try {
-    const { modelId } = req.params;
-    
-    if (!adminClient) {
-      return res.status(500).json({ error: 'Azure Document Intelligence not configured' });
-    }
-
-    console.log('Fetching model info for:', modelId);
-    
-    // Use the SDK's getDocumentModel method from admin client
-    const model = await adminClient.getDocumentModel(modelId);
-    
-    console.log('Model info retrieved:', model.modelId);
-    console.log('Model details:', {
-      modelId: model.modelId,
-      createdOn: model.createdOn,
-      description: model.description
-    });
-    
-    // Extract field schema from the model
-    const fields = {};
-    
-    if (model.docTypes) {
-      // For composed models, merge fields from all document types
-      const docTypeNames = Object.keys(model.docTypes);
-      console.log('Document types found:', docTypeNames);
-      
-      // Iterate through all document types and merge their fields
-      docTypeNames.forEach(docTypeName => {
-        if (model.docTypes[docTypeName].fieldSchema) {
-          Object.entries(model.docTypes[docTypeName].fieldSchema).forEach(([fieldName, fieldInfo]) => {
-            // If field doesn't exist yet, or if this docType has more info about it, update it
-            if (!fields[fieldName]) {
-              fields[fieldName] = {
-                type: fieldInfo.type || 'string',
-                description: fieldInfo.description || fieldName.replace(/_/g, ' '),
-                required: fieldInfo.required || false,
-                availableIn: [docTypeName] // Track which doc types have this field
-              };
-            } else {
-              // Field exists, just add this docType to the list
-              fields[fieldName].availableIn.push(docTypeName);
-            }
-          });
-        }
-      });
-      
-      // console.log('Total unique fields found:', Object.keys(fields).length);
-      // console.log('Fields:', Object.keys(fields).sort());
-    }
-
     res.json({
-      modelId: model.modelId,
-      description: model.description || 'Custom trained model',
-      createdDateTime: model.createdOn,
-      fields: fields,
-      // The SDK handles API versioning internally
-      apiVersion: 'Handled by SDK'
+      models: clientModels,
+      count: clientModels.length
     });
-
   } catch (error) {
-    console.error('Error getting model info:', error);
+    console.error('Error fetching user models:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch available models',
+      details: error.message 
+    });
+  }
+});
+
+// Get model with field configurations
+router.get('/:modelId/config', authenticateToken, async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const userId = req.user.id;
     
-    // Check for specific error types
-    const errorCode = error.code || error.errorCode;
-    const statusCode = error.statusCode;
+    const model = await modelManager.getModelWithFieldConfigs(modelId, userId);
     
-    if (errorCode === 'ModelNotFound' || statusCode === 404) {
-      return res.status(404).json({ 
-        error: 'Model not found',
-        modelId: req.params.modelId 
+    // Transform for client
+    const clientModel = {
+      id: model.modelId,
+      displayName: model.displayName,
+      description: model.description,
+      isPublic: model.isPublic,
+      fields: model.fieldConfigurations.map(field => ({
+        name: field.fieldName,
+        displayName: field.customDisplayName || field.fieldName,
+        type: field.azureType || 'string',
+        isEnabled: field.isEnabled,
+        isRequired: field.isRequired,
+        hasDefault: !!field.defaultValue,
+        defaultType: field.defaultValueType,
+        displayOrder: field.displayOrder
+      })),
+      azureDetails: {
+        createdOn: model.azureDetails?.createdDateTime,
+        docTypes: Object.keys(model.azureDetails?.docTypes || {})
+      }
+    };
+    
+    res.json(clientModel);
+  } catch (error) {
+    console.error('Error fetching model config:', error);
+    
+    if (error.message === 'Model not found') {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+    
+    if (error.message === 'Access denied to this model') {
+      return res.status(403).json({ error: 'Access denied to this model' });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch model configuration',
+      details: error.message 
+    });
+  }
+});
+
+// Process document with model (applies field filtering and defaults)
+router.post('/:modelId/extract', authenticateToken, async (req, res) => {
+  try {
+    const { modelId } = req.params;
+    const { documentUrl, rawExtractedData } = req.body;
+    const userId = req.user.id;
+    
+    if (!documentUrl && !rawExtractedData) {
+      return res.status(400).json({ 
+        error: 'Either documentUrl or rawExtractedData is required' 
       });
     }
     
-    // For other errors, return a generic error
+    let extractedData = rawExtractedData;
+    
+    // If documentUrl is provided, perform extraction
+    if (documentUrl) {
+      const result = await processDocumentFromUrl(documentUrl, 'document.pdf', modelId);
+      extractedData = result.fields;
+    }
+    
+    // Process extracted data with field configurations
+    const processedResult = await modelManager.processExtractedData(
+      modelId, 
+      extractedData, 
+      userId
+    );
+    
+    res.json({
+      success: true,
+      modelId: processedResult.modelId,
+      modelName: processedResult.modelName,
+      data: processedResult.processedData,
+      fieldConfigurations: processedResult.fieldConfigurations.map(field => ({
+        name: field.fieldName,
+        displayName: field.customDisplayName || field.fieldName,
+        type: field.azureType || 'string',
+        hadDefault: !extractedData[field.fieldName] && !!processedResult.processedData[field.customDisplayName || field.fieldName]
+      })),
+      timestamp: processedResult.timestamp
+    });
+  } catch (error) {
+    console.error('Error processing document:', error);
+    
+    if (error.message === 'Model not found') {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+    
+    if (error.message === 'Access denied to this model') {
+      return res.status(403).json({ error: 'Access denied to this model' });
+    }
+    
     res.status(500).json({ 
-      error: 'Failed to get model information',
-      details: error.message
+      error: 'Failed to process document',
+      details: error.message 
     });
   }
 });

@@ -29,6 +29,8 @@ model User {
   processingSessions ProcessingSession[]
   sessions           Session[]
   transactions       Transaction[]
+  modelConfigurations ModelConfiguration[]
+  modelAccess        ModelAccess[]
 }
 
 model Session {
@@ -51,6 +53,7 @@ model Organization {
   updatedAt    DateTime      @default(now()) @updatedAt
   customModels CustomModel[]
   user         User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modelAccess  ModelAccess[]
 }
 
 model CustomModel {
@@ -189,6 +192,76 @@ model CleanupLog {
 
   @@index([status])
   @@index([startedAt])
+}
+
+model ModelConfiguration {
+  id               String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  azureModelId     String
+  customName       String
+  description      String?
+  isActive         Boolean              @default(true)
+  isPublic         Boolean              @default(false)
+  createdBy        Int
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @default(now()) @updatedAt
+  creator          User                 @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fieldConfigs     FieldConfiguration[]
+  modelAccess      ModelAccess[]
+  
+  @@unique([azureModelId, createdBy])
+  @@index([azureModelId])
+  @@index([createdBy])
+  @@index([isPublic])
+}
+
+model FieldConfiguration {
+  id                String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  modelConfigId     String
+  azureFieldName    String
+  customFieldName   String?
+  isEnabled         Boolean              @default(true)
+  defaultValue      String?
+  defaultValueType  FieldDefaultType     @default(STRING)
+  fieldOrder        Int                  @default(0)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @default(now()) @updatedAt
+  modelConfig       ModelConfiguration   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  @@unique([modelConfigId, azureFieldName])
+  @@index([modelConfigId])
+}
+
+model ModelAccess {
+  id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  modelConfigId   String
+  userId          Int?
+  organizationId  Int?
+  canRead         Boolean            @default(true)
+  canUse          Boolean            @default(true)
+  canEdit         Boolean            @default(false)
+  grantedBy       Int
+  grantedAt       DateTime           @default(now())
+  expiresAt       DateTime?
+  modelConfig     ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user            User?              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organization    Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  @@unique([modelConfigId, userId])
+  @@unique([modelConfigId, organizationId])
+  @@index([modelConfigId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([expiresAt])
+}
+
+enum FieldDefaultType {
+  STRING
+  NUMBER
+  DATE
+  BOOLEAN
+  TODAY
+  CURRENT_USER
+  EMPTY
 }
 
 enum UserRole {
