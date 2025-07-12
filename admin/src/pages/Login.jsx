@@ -71,18 +71,18 @@ export default function Login() {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl">Admin Login</CardTitle>
-          <CardDescription>
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <Card className="w-full max-w-md border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
+        <CardHeader className="space-y-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white pb-8 pt-8 rounded-t-lg">
+          <CardTitle className="text-2xl text-center">Admin Dashboard</CardTitle>
+          <CardDescription className="text-center text-indigo-100">
             Enter your admin credentials to access the dashboard
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-gray-700 dark:text-gray-200">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -91,10 +91,11 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
                 required
+                className="border-gray-300 dark:border-gray-600 focus:border-indigo-500 dark:focus:border-indigo-400"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-gray-700 dark:text-gray-200">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -102,11 +103,12 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
                 required
+                className="border-gray-300 dark:border-gray-600 focus:border-indigo-500 dark:focus:border-indigo-400"
               />
             </div>
             <Button
               type="submit"
-              className="w-full"
+              className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -122,17 +124,17 @@ export default function Login() {
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <Separator />
+              <Separator className="bg-gray-200 dark:bg-gray-700" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">Or continue with</span>
             </div>
           </div>
 
           <Button
             type="button"
             variant="outline"
-            className="w-full"
+            className="w-full border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all duration-200"
             onClick={handleGoogleLogin}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">

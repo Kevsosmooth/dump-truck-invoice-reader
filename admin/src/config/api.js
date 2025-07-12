@@ -7,13 +7,10 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor to add admin token
+// Request interceptor (cookies are sent automatically with withCredentials: true)
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    // No need to add token manually, cookie is sent automatically
     return config;
   },
   (error) => {
@@ -26,8 +23,11 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('adminToken');
-      window.location.href = '/login';
+      // Only redirect to login if not already on login page or auth callback
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('/login') && !currentPath.includes('/auth/callback')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

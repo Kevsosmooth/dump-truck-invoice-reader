@@ -1,0 +1,40 @@
+/* Dialog/Modal fixes to ensure proper visibility */
+
+/* Ensure the dialog overlay doesn't cover the modal content */
+[data-radix-dialog-overlay] {
+  position: fixed;
+  inset: 0;
+  z-index: 40 !important;
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Ensure the dialog content appears above the overlay */
+[data-radix-dialog-content] {
+  position: fixed;
+  z-index: 50 !important;
+  background-color: white;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+/* Dark mode dialog content */
+.dark [data-radix-dialog-content] {
+  background-color: rgb(17, 24, 39); /* gray-900 */
+  border-color: rgb(55, 65, 81); /* gray-700 */
+}
+
+/* Ensure dialog portal renders at the correct z-index */
+[data-radix-dialog-portal] {
+  position: fixed;
+  z-index: 50;
+}
+
+/* Additional modal enhancements */
+.dialog-content-enhanced {
+  background: linear-gradient(to bottom, white, rgb(249, 250, 251));
+  border: 1px solid rgb(229, 231, 235);
+}
+
+.dark .dialog-content-enhanced {
+  background: linear-gradient(to bottom, rgb(31, 41, 55), rgb(17, 24, 39));
+  border: 1px solid rgb(55, 65, 81);
+}

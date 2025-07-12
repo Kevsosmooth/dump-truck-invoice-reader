@@ -21,16 +21,17 @@ export const AdminAuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem('adminToken');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
+      // Try to get user data from the /me endpoint
+      // The cookie will be sent automatically with the request
       const response = await api.get('/admin/auth/me');
       setAdmin(response.data);
     } catch (error) {
-      localStorage.removeItem('adminToken');
+      // If error, user is not authenticated
+      // Only log if not a 401 error (which is expected when not logged in)
+      if (error.response?.status !== 401) {
+        console.error('Auth check failed:', error);
+      }
+      setAdmin(null);
     } finally {
       setLoading(false);
     }
@@ -57,8 +58,9 @@ export const AdminAuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('adminToken');
       setAdmin(null);
+      // Redirect to login after logout
+      window.location.href = '/login';
     }
   };
 

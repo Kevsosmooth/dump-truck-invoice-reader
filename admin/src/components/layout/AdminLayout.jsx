@@ -39,11 +39,11 @@ export default function AdminLayout({ children }) {
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden" 
+          className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm lg:hidden" 
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -51,18 +51,18 @@ export default function AdminLayout({ children }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-r border-gray-200/50 dark:border-gray-700/50 shadow-xl transform transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex h-16 items-center justify-between px-6 border-b">
-            <h1 className="text-xl font-bold">Admin Dashboard</h1>
+          <div className="flex h-16 items-center justify-between px-6 border-b border-gray-200/50 dark:border-gray-700/50 bg-gradient-to-r from-indigo-500 to-purple-600">
+            <h1 className="text-xl font-bold text-white">Admin Dashboard</h1>
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden"
+              className="lg:hidden text-white hover:bg-white/20"
               onClick={() => setSidebarOpen(false)}
             >
               <X className="h-5 w-5" />
@@ -77,29 +77,29 @@ export default function AdminLayout({ children }) {
                 to={item.href}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "bg-secondary text-secondary-foreground"
-                      : "text-muted-foreground hover:bg-secondary/50 hover:text-secondary-foreground"
+                      ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg"
+                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white"
                   )
                 }
                 onClick={() => setSidebarOpen(false)}
               >
-                <item.icon className="h-5 w-5" />
+                <item.icon className="h-5 w-5 transition-transform duration-200 group-hover:scale-110" />
                 {item.name}
               </NavLink>
             ))}
           </nav>
 
           {/* User info and logout */}
-          <div className="border-t px-3 py-4">
+          <div className="border-t border-gray-200/50 dark:border-gray-700/50 px-3 py-4 bg-gray-50/50 dark:bg-gray-900/50">
             <div className="mb-3 px-3">
-              <p className="text-sm font-medium">{admin?.name || admin?.email}</p>
-              <p className="text-xs text-muted-foreground">Administrator</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">{admin?.name || admin?.email}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Administrator</p>
             </div>
             <Button
               variant="ghost"
-              className="w-full justify-start gap-3"
+              className="w-full justify-start gap-3 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all duration-200"
               onClick={handleLogout}
             >
               <LogOut className="h-5 w-5" />
@@ -110,17 +110,18 @@ export default function AdminLayout({ children }) {
       </aside>
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {/* Mobile header */}
-        <header className="flex h-16 items-center gap-4 border-b bg-card px-6 lg:hidden">
+        <header className="flex h-16 items-center gap-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/70 dark:bg-gray-900/70 backdrop-blur-md px-6 lg:hidden">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(true)}
+            className="hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <h1 className="text-xl font-bold">Admin Dashboard</h1>
+          <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">Admin Dashboard</h1>
         </header>
 
         {/* Page content */}
