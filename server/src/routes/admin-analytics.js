@@ -43,13 +43,13 @@ router.get('/overview', async (req, res) => {
       
       // Total documents processed
       prisma.job.count({
-        where: { status: 'completed' }
+        where: { status: 'COMPLETED' }
       }),
       
       // Documents last month
       prisma.job.count({
         where: {
-          status: 'completed',
+          status: 'COMPLETED',
           createdAt: {
             gte: lastMonth,
             lt: startOfMonth
@@ -57,16 +57,16 @@ router.get('/overview', async (req, res) => {
         }
       }),
       
-      // Total credits used (sum of all DEDUCT transactions)
+      // Total credits used (sum of all USAGE transactions)
       prisma.transaction.aggregate({
-        where: { type: 'DEDUCT' },
+        where: { type: 'USAGE' },
         _sum: { amount: true }
       }),
       
       // Credits used last month
       prisma.transaction.aggregate({
         where: {
-          type: 'DEDUCT',
+          type: 'USAGE',
           createdAt: {
             gte: lastMonth,
             lt: startOfMonth
@@ -77,7 +77,7 @@ router.get('/overview', async (req, res) => {
       
       // Active processing sessions
       prisma.processingSession.count({
-        where: { status: 'processing' }
+        where: { status: 'PROCESSING' }
       }),
       
       // Recent activity
