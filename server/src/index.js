@@ -156,11 +156,13 @@ import metricsRoutes from './routes/metrics.js';
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
 app.use('/auth', authRoutes);
-app.use('/api/admin', adminRoutes);
+// Mount admin auth routes FIRST (no authentication required)
 app.use('/api/admin/auth', adminAuthRoutes);
+// Then mount other admin routes (authentication required)
 app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/admin/credits', adminCreditsRoutes);
 app.use('/api/admin/models', adminModelsRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);

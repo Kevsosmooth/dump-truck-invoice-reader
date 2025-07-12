@@ -49,7 +49,8 @@
       "Bash(npm install:*)",
       "Bash(curl:*)",
       "mcp__azure__azmcp-monitor-metrics-query",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "WebFetch(domain:render.com)"
     ],
     "deny": []
   },

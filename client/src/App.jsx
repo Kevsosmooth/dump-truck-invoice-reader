@@ -125,6 +125,7 @@ function App() {
   // Session loading states
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [hasSessionsCheck, setHasSessionsCheck] = useState(null); // null = not checked, true/false = result
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false); // Track if initial load is done
 
   // Quick check if user has any sessions
   const checkHasSessions = async () => {
@@ -179,6 +180,8 @@ function App() {
     } finally {
       setSessionsLoading(false);
     }
+    
+    return; // Ensure it returns a promise
   };
 
   // Apply client-side filtering and pagination
@@ -240,9 +243,17 @@ function App() {
       checkHasSessions().then(hasSessions => {
         if (hasSessions) {
           // If they have sessions, then fetch all of them
-          fetchAllUserSessions();
+          fetchAllUserSessions().then(() => {
+            setInitialLoadComplete(true);
+          });
+        } else {
+          // No sessions, mark as complete immediately
+          setInitialLoadComplete(true);
         }
       });
+    } else {
+      // Not logged in, reset initial load state
+      setInitialLoadComplete(false);
     }
   }, [user, token]);
   
@@ -863,6 +874,18 @@ function App() {
   //   );
   // }
 
+  // Show loading state until initial session load is complete
+  if (!initialLoadComplete && user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 mx-auto mb-4 text-indigo-600 dark:text-indigo-400 animate-spin" />
+          <p className="text-lg text-gray-600 dark:text-gray-400">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-indigo-950 overflow-x-hidden">
       {/* File Rename Builder Modal */}
@@ -1219,9 +1242,14 @@ function App() {
                       variant="ghost"
                       onClick={() => {
                         setHasSessionsCheck(null);
+                        setInitialLoadComplete(false);
                         checkHasSessions().then(hasSessions => {
                           if (hasSessions) {
-                            fetchAllUserSessions();
+                            fetchAllUserSessions().then(() => {
+                              setInitialLoadComplete(true);
+                            });
+                          } else {
+                            setInitialLoadComplete(true);
                           }
                         });
                       }}
