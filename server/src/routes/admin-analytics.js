@@ -11,6 +11,11 @@ router.use(authenticateAdmin);
 // Get overview statistics
 router.get('/overview', async (req, res) => {
   try {
+    // Pagination for recent activity
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
     // Get current date info
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -26,7 +31,8 @@ router.get('/overview', async (req, res) => {
       creditsUsed,
       lastMonthCredits,
       activeSessions,
-      recentActivity
+      recentActivity,
+      totalActivityCount
     ] = await Promise.all([
       // Total users
       prisma.user.count(),
@@ -80,9 +86,10 @@ router.get('/overview', async (req, res) => {
         where: { status: 'PROCESSING' }
       }),
       
-      // Recent activity
+      // Recent activity with pagination
       prisma.auditLog.findMany({
-        take: 10,
+        skip,
+        take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
@@ -93,7 +100,10 @@ router.get('/overview', async (req, res) => {
             }
           }
         }
-      })
+      }),
+      
+      // Total count of audit logs for pagination
+      prisma.auditLog.count()
     ]);
 
     // Calculate trends
@@ -147,6 +157,12 @@ router.get('/overview', async (req, res) => {
       creditsTrend,
       activeSessions,
       recentActivity: formattedActivity,
+      recentActivityPagination: {
+        page,
+        limit,
+        total: totalActivityCount,
+        totalPages: Math.ceil(totalActivityCount / limit)
+      },
       apiResponseTime,
       storageUsage
     });

@@ -1,5 +1,6 @@
 import { uploadToBlob, downloadBlob, extractBlobPath } from './azure-storage.js';
 import { PrismaClient } from '@prisma/client';
+import modelManager from './model-manager.js';
 
 const prisma = new PrismaClient();
 
@@ -12,7 +13,11 @@ export async function postProcessJob(jobId) {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
       include: {
-        session: true,
+        session: {
+          include: {
+            user: true
+          }
+        },
       }
     });
 
@@ -39,8 +44,30 @@ export async function postProcessJob(jobId) {
     }
 
     // Extract relevant fields for naming
-    const fields = job.extractedFields;
+    let fields = job.extractedFields;
     
+    // Apply field defaults if model config ID is available
+    if (job.modelConfigId) {
+      console.log(`[POST-PROCESS] Applying field defaults for model config: ${job.modelConfigId}`);
+      const context = {
+        user: job.session?.user,
+        job: job,
+        session: job.session
+      };
+      
+      try {
+        fields = await modelManager.applyFieldDefaults(job.modelConfigId, fields, context);
+        
+        // Update the job with the processed fields
+        await prisma.job.update({
+          where: { id: jobId },
+          data: { extractedFields: fields }
+        });
+      } catch (error) {
+        console.error(`[POST-PROCESS] Error applying field defaults:`, error);
+        // Continue with original fields if defaults fail
+      }
+    }
     
     // Try to find company name, ticket number, and date
     let companyName = '';

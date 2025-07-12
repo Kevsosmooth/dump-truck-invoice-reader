@@ -89,7 +89,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState([]);
   // const [showModelTraining, setShowModelTraining] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('Silvi_Reader_Full_2.0');
+  const [selectedModel, setSelectedModel] = useState('');
+  const [availableModels, setAvailableModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [filePageCounts, setFilePageCounts] = useState({});
@@ -126,6 +128,34 @@ function App() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [hasSessionsCheck, setHasSessionsCheck] = useState(null); // null = not checked, true/false = result
   const [initialLoadComplete, setInitialLoadComplete] = useState(false); // Track if initial load is done
+
+  // Fetch available models for the user
+  const fetchAvailableModels = async () => {
+    if (!token) return;
+    
+    setModelsLoading(true);
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/models`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableModels(data.models || []);
+        
+        // Select the first model if available
+        if (data.models && data.models.length > 0 && !selectedModel) {
+          setSelectedModel(data.models[0].id);
+        }
+      } else {
+        console.error('Failed to fetch models');
+        setAvailableModels([]);
+      }
+    } catch (error) {
+      console.error('Error fetching models:', error);
+      setAvailableModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
 
   // Quick check if user has any sessions
   const checkHasSessions = async () => {
@@ -483,7 +513,7 @@ function App() {
   useEffect(() => {
     const fetchModelInfo = async () => {
       try {
-        const response = await fetchWithAuth(`${API_URL}/api/models/${selectedModel}/info`);
+        const response = await fetchWithAuth(`${API_URL}/api/models/${selectedModel}`);
         const data = await response.json();
         
         if (response.ok) {
@@ -503,6 +533,13 @@ function App() {
       fetchModelInfo();
     }
   }, [selectedModel]);
+
+  // Fetch available models when user logs in
+  useEffect(() => {
+    if (token) {
+      fetchAvailableModels();
+    }
+  }, [token]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -629,10 +666,19 @@ function App() {
     setCurrentSession(session);
     localStorage.setItem('activeSession', JSON.stringify(session));
     
+    // Find the selected model to get its Azure model ID
+    const selectedModelData = availableModels.find(m => m.id === selectedModel);
+    if (!selectedModelData) {
+      console.error('Selected model not found');
+      alert('Please select a valid model');
+      return;
+    }
+
     // Prepare FormData with all files
     const formData = new FormData();
     formData.append('sessionId', sessionId);
-    formData.append('modelId', selectedModel);
+    formData.append('modelId', selectedModelData.azureModelId); // Send Azure model ID for processing
+    formData.append('modelConfigId', selectedModel); // Send config ID for defaults
     
     // Add all files to FormData
     filesToUpload.forEach((file) => {
@@ -1191,12 +1237,24 @@ function App() {
                         <SelectValue placeholder="Select a model" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Silvi_Reader_Full_2.0">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="text-xs">Custom</Badge>
-                            <span>SILVI READER 2.0</span>
+                        {modelsLoading ? (
+                          <div className="p-2 text-center text-sm text-gray-500">
+                            Loading models...
                           </div>
-                        </SelectItem>
+                        ) : availableModels.length > 0 ? (
+                          availableModels.map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="text-xs">Custom</Badge>
+                                <span>{model.displayName}</span>
+                              </div>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="p-2 text-center text-sm text-gray-500">
+                            No models available. Please contact your administrator.
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>

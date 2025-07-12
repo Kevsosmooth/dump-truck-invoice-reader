@@ -41,6 +41,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
 
     const userId = req.user.id;
     const modelId = req.body.modelId || process.env.AZURE_CUSTOM_MODEL_ID;
+    const modelConfigId = req.body.modelConfigId; // Extract model configuration ID
 
     // Check user credits
     const user = await prisma.user.findUnique({
@@ -104,6 +105,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
         status: 'UPLOADING',
         blobPrefix,
         modelId,
+        modelConfigId, // Store the model configuration ID
         expiresAt,
       },
     });
@@ -158,6 +160,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount,
               status: 'QUEUED',
               blobUrl,
+              modelConfigId,
             },
           });
 
@@ -192,6 +195,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
                 parentJobId: parentJob.id,
                 splitPageNumber: i + 1,
                 blobUrl: pageBlobUrl,
+                modelConfigId,
               },
             });
 
@@ -229,6 +233,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount: 1,
               status: 'QUEUED',
               blobUrl,
+              modelConfigId,
             },
           });
           
@@ -245,6 +250,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               parentJobId: parentJob.id,
               splitPageNumber: 1,
               blobUrl: pageBlobUrl,
+              modelConfigId,
             },
           });
 

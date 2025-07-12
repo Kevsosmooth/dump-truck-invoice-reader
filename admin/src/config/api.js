@@ -34,3 +34,4 @@ api.interceptors.response.use(
 );
 
 export default api;
+export const adminAPI = api;

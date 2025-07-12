@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, FileText, CreditCard, TrendingUp } from 'lucide-react';
+import { Users, FileText, CreditCard, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import api from '@/config/api';
 
 function StatsCard({ title, value, description, icon: Icon, trend }) {
@@ -38,13 +40,27 @@ function StatsCard({ title, value, description, icon: Icon, trend }) {
 }
 
 export default function Dashboard() {
+  const [activityPage, setActivityPage] = useState(1);
+  const activityLimit = 5; // Show 5 items per page
+
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['adminStats'],
+    queryKey: ['adminStats', activityPage],
     queryFn: async () => {
-      const response = await api.get('/admin/analytics/overview');
+      const response = await api.get('/admin/analytics/overview', {
+        params: { page: activityPage, limit: activityLimit }
+      });
       return response.data;
     },
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const { data: healthData } = useQuery({
+    queryKey: ['systemHealth'],
+    queryFn: async () => {
+      const response = await api.get('/admin/health/status');
+      return response.data;
+    },
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 
   if (isLoading) {
@@ -105,8 +121,8 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-4">
-            {stats?.recentActivity?.map((activity, index) => (
-              <div key={index} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
+            {stats?.recentActivity?.map((activity) => (
+              <div key={activity.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
                 <div className="h-2 w-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{activity.description}</p>
@@ -120,6 +136,37 @@ export default function Dashboard() {
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No recent activity</p>
             )}
           </div>
+          
+          {/* Pagination Controls */}
+          {stats?.recentActivityPagination && stats.recentActivityPagination.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Page {stats.recentActivityPagination.page} of {stats.recentActivityPagination.totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActivityPage(prev => Math.max(1, prev - 1))}
+                  disabled={activityPage === 1}
+                  className="gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActivityPage(prev => Math.min(stats.recentActivityPagination.totalPages, prev + 1))}
+                  disabled={activityPage === stats.recentActivityPagination.totalPages}
+                  className="gap-1"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -135,24 +182,29 @@ export default function Dashboard() {
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
-                <span className="text-sm text-gray-600 dark:text-gray-300">API Response Time</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Avg Processing Time</span>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-gray-900 dark:text-white">
-                    {stats?.apiResponseTime || '0'}ms
+                    {stats?.apiResponseTime ? `${(stats.apiResponseTime / 1000).toFixed(1)}s` : '0s'}
                   </span>
                   <span className={`inline-block h-2 w-2 rounded-full shadow-sm ${
-                    stats?.apiResponseTime < 100 ? 'bg-green-500' : 
-                    stats?.apiResponseTime < 500 ? 'bg-yellow-500' : 'bg-red-500'
+                    stats?.apiResponseTime < 5000 ? 'bg-green-500' : 
+                    stats?.apiResponseTime < 15000 ? 'bg-yellow-500' : 'bg-red-500'
                   }`} />
                 </div>
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
                 <span className="text-sm text-gray-600 dark:text-gray-300">Database Status</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                    Healthy
+                  <span className={`text-sm font-medium ${
+                    healthData?.database?.status === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {healthData?.database?.status === 'healthy' ? 'Healthy' : 'Unhealthy'}
+                    {healthData?.database?.responseTime && ` (${healthData.database.responseTime}ms)`}
                   </span>
-                  <span className="inline-block h-2 w-2 rounded-full bg-green-500 shadow-sm animate-pulse" />
+                  <span className={`inline-block h-2 w-2 rounded-full shadow-sm ${
+                    healthData?.database?.status === 'healthy' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                  }`} />
                 </div>
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
@@ -170,17 +222,31 @@ export default function Dashboard() {
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
                 <span className="text-sm text-gray-600 dark:text-gray-300">Azure API Status</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                    Connected
+                  <span className={`text-sm font-medium ${
+                    healthData?.azure?.status === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {healthData?.azure?.status === 'healthy' ? 'Connected' : 'Disconnected'}
+                    {healthData?.azure?.responseTime && ` (${healthData.azure.responseTime}ms)`}
                   </span>
-                  <span className="inline-block h-2 w-2 rounded-full bg-green-500 shadow-sm animate-pulse" />
+                  <span className={`inline-block h-2 w-2 rounded-full shadow-sm ${
+                    healthData?.azure?.status === 'healthy' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                  }`} />
                 </div>
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Active Sessions</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  {stats?.activeSessions || 0} processing
-                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Active Jobs</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">
+                    {healthData?.processing?.activeJobs || 0}
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    healthData?.processing?.queueStatus === 'busy' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
+                    healthData?.processing?.queueStatus === 'moderate' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400' :
+                    'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                  }`}>
+                    {healthData?.processing?.queueStatus || 'normal'}
+                  </span>
+                </div>
               </div>
             </div>
           </CardContent>

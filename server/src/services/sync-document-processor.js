@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
  * Process a document job synchronously
  */
 export async function processDocumentSync(jobData) {
-  const { jobId, sessionId, userId, modelId } = jobData;
+  const { jobId, sessionId, userId, modelId, modelConfigId } = jobData;
   
   try {
     // Get job details
@@ -143,7 +143,7 @@ export async function processDocumentSync(jobData) {
  * Process all pending jobs for a session
  */
 export async function processSessionJobs(sessionId) {
-  // First get the session to get the modelId
+  // First get the session to get the modelId and modelConfigId
   const session = await prisma.processingSession.findUnique({
     where: { id: sessionId },
   });
@@ -187,6 +187,7 @@ export async function processSessionJobs(sessionId) {
           sessionId: job.sessionId,
           userId: job.userId,
           modelId: session.modelId,
+          modelConfigId: session.modelConfigId,
         });
         
         console.log(`[PROCESSING] ✅ Completed ${processedCount}/${jobs.length}`);
@@ -213,6 +214,7 @@ export async function processSessionJobs(sessionId) {
           sessionId: job.sessionId,
           userId: job.userId,
           modelId: session.modelId,
+          modelConfigId: session.modelConfigId,
         });
         
         processedCount++;

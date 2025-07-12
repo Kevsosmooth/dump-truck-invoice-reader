@@ -33,9 +33,10 @@ import api from '@/config/api';
 const defaultValueTypes = [
   { value: 'STATIC', label: 'Static Text', icon: Type },
   { value: 'TODAY', label: 'Current Date', icon: Calendar },
-  { value: 'CURRENT_USER', label: 'User Email', icon: User },
+  { value: 'CURRENT_USER', label: 'Current User', icon: User },
   { value: 'ORGANIZATION', label: 'Organization Name', icon: Building },
-  { value: 'EMPTY', label: 'Empty (Blank)', icon: EyeOff }
+  { value: 'EMPTY', label: 'Empty (Blank)', icon: EyeOff },
+  { value: 'CALCULATED', label: 'Calculated', icon: Hash }
 ];
 
 const dateFormats = [
@@ -123,18 +124,19 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
   };
 
   const getFieldIcon = (fieldType) => {
-    switch (fieldType?.toLowerCase()) {
-      case 'string':
-      case 'text':
+    switch (fieldType?.toUpperCase()) {
+      case 'TEXT':
+      case 'STRING':
         return Type;
-      case 'number':
-      case 'integer':
-      case 'float':
+      case 'NUMBER':
+      case 'CURRENCY':
+      case 'INTEGER':
+      case 'FLOAT':
         return Hash;
-      case 'date':
-      case 'datetime':
+      case 'DATE':
+      case 'DATETIME':
         return CalendarDays;
-      case 'boolean':
+      case 'BOOLEAN':
         return ToggleLeft;
       default:
         return Type;
@@ -157,6 +159,8 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
         return 'Example Organization';
       case 'EMPTY':
         return '(empty)';
+      case 'CALCULATED':
+        return field.defaultValue || '{{formula}}';
       default:
         return '';
     }
@@ -318,7 +322,23 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                                 </SelectContent>
                               </Select>
                             )}
+
+                            {field.defaultValueType === 'CALCULATED' && (
+                              <Input
+                                value={field.defaultValue || ''}
+                                onChange={(e) => handleFieldUpdate(index, { defaultValue: e.target.value })}
+                                placeholder="e.g., {{TODAY}}_{{USER_NAME}}"
+                                className="flex-1"
+                              />
+                            )}
                           </div>
+
+                          {/* Help text for calculated fields */}
+                          {field.defaultValueType === 'CALCULATED' && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 pl-[208px]">
+                              Available tokens: {{TODAY}}, {{CURRENT_YEAR}}, {{CURRENT_MONTH}}, {{USER_NAME}}, {{USER_EMAIL}}, {{TIMESTAMP}}
+                            </p>
+                          )}
 
                           {/* Preview */}
                           {field.defaultValueType && field.defaultValueType !== 'EMPTY' && (
