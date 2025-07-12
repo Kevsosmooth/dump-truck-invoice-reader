@@ -14,6 +14,8 @@ export const useAdminAuth = () => {
 export const AdminAuthProvider = ({ children }) => {
   const [admin, setAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -34,6 +36,7 @@ export const AdminAuthProvider = ({ children }) => {
       setAdmin(null);
     } finally {
       setLoading(false);
+      setInitialLoadComplete(true);
     }
   };
 
@@ -53,13 +56,20 @@ export const AdminAuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    setIsLoggingOut(true);
+    
+    // Add a small delay to ensure loading screen is visible
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     try {
       await api.post('/admin/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       setAdmin(null);
-      // Redirect to login after logout
+      localStorage.removeItem('adminToken');
+      // Additional delay before redirect
+      await new Promise(resolve => setTimeout(resolve, 300));
       window.location.href = '/login';
     }
   };
@@ -67,6 +77,8 @@ export const AdminAuthProvider = ({ children }) => {
   const value = {
     admin,
     loading,
+    isLoggingOut,
+    initialLoadComplete,
     login,
     logout,
     checkAuth,
