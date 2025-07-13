@@ -135,13 +135,20 @@ router.get('/google/callback', async (req, res) => {
       );
 
       // Set admin cookie
-      res.cookie('adminToken', token, {
+      const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-site cookies
         maxAge: 2 * 60 * 60 * 1000, // 2 hours
         path: '/',
-      });
+      };
+      
+      // In production, we need to set domain if specified
+      if (process.env.COOKIE_DOMAIN) {
+        cookieOptions.domain = process.env.COOKIE_DOMAIN;
+      }
+      
+      res.cookie('adminToken', token, cookieOptions);
 
       console.log('Admin login successful:', {
         userId: user.id,
@@ -168,8 +175,9 @@ router.get('/google/callback', async (req, res) => {
         },
       });
 
-    // Redirect to admin auth callback
-    res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/auth/callback`);
+    // Redirect to admin auth callback with token
+    const redirectUrl = `${process.env.ADMIN_URL || 'http://localhost:5174'}/auth/callback?token=${encodeURIComponent(token)}`;
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Admin Google auth error:', error);
     res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=auth_error`);

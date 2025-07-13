@@ -23,17 +23,27 @@ export const AdminAuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
+      // Check if we have a token in localStorage
+      const token = localStorage.getItem('adminToken');
+      if (!token) {
+        throw new Error('No admin token found');
+      }
+      
+      // Set token in axios default headers
+      adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
       // Try to get user data from the /me endpoint
-      // The cookie will be sent automatically with the request
       const response = await adminAPI.get('/auth/me');
       setAdmin(response.data);
     } catch (error) {
       // If error, user is not authenticated
       // Only log if not a 401 error (which is expected when not logged in)
-      if (error.response?.status !== 401) {
+      if (error.response?.status !== 401 && error.message !== 'No admin token found') {
         console.error('Auth check failed:', error);
       }
       setAdmin(null);
+      localStorage.removeItem('adminToken');
+      delete adminAPI.defaults.headers.common['Authorization'];
     } finally {
       setLoading(false);
       setInitialLoadComplete(true);
@@ -45,6 +55,7 @@ export const AdminAuthProvider = ({ children }) => {
       const response = await adminAPI.post('/auth/login', { email, password });
       const { token, user } = response.data;
       localStorage.setItem('adminToken', token);
+      adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setAdmin(user);
       return { success: true };
     } catch (error) {
@@ -68,6 +79,7 @@ export const AdminAuthProvider = ({ children }) => {
     } finally {
       setAdmin(null);
       localStorage.removeItem('adminToken');
+      delete adminAPI.defaults.headers.common['Authorization'];
       // Additional delay before redirect
       await new Promise(resolve => setTimeout(resolve, 300));
       window.location.href = '/login';

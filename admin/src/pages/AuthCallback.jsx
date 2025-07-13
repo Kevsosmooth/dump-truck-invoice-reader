@@ -10,16 +10,24 @@ export default function AuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // After Google OAuth, we're redirected here
-        // The server has already set the adminToken cookie
-        // We need to verify the auth and get the token for localStorage
+        // Get token from URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        if (!token) {
+          throw new Error('No authentication token received');
+        }
+        
+        // Store token in localStorage
+        localStorage.setItem('adminToken', token);
+        
+        // Set up axios to use the token
+        adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         // Call the /me endpoint to verify authentication
         const response = await adminAPI.get('/auth/me');
         
         if (response.data) {
-          // Get the token from the response headers or generate one
-          // For now, we'll just verify the cookie is working
           toast.success('Login successful!');
           
           // The AdminAuthContext will handle loading the user data

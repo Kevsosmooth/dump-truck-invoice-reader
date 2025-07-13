@@ -13,9 +13,12 @@ const adminAPI = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor (cookies are sent automatically with withCredentials: true)
+// Request interceptor - add token from localStorage
 const requestInterceptor = (config) => {
-  // No need to add token manually, cookie is sent automatically
+  const token = localStorage.getItem('adminToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 };
 
