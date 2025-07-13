@@ -52,12 +52,20 @@
       "Bash(git reset:*)",
       "WebFetch(domain:render.com)",
       "mcp__supabase__apply_migration",
-      "mcp__supabase__list_extensions"
+      "mcp__supabase__list_extensions",
+      "mcp__render__list_workspaces",
+      "mcp__render__list_services",
+      "mcp__render__list_logs",
+      "mcp__render__get_service",
+      "mcp__render__list_deploys",
+      "mcp__render__update_environment_variables",
+      "mcp__render__get_deploy"
     ],
     "deny": []
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "context7"
+    "context7",
+    "github"
   ]
 }

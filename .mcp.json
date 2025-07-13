@@ -23,12 +23,6 @@
       "env": {
         "SUPABASE_ACCESS_TOKEN": "sbp_0fdffd6f34d1daee7543cbd48f2c299b0d504b9e"
       }
-    },
-    "render": {
-      "uri": "https://api.render.com/mcp",
-      "headers": {
-        "Authorization": "Bearer rnd_PShHaVIwY7P6GUpND0bRYlH0NnYW"
-      }
     }
   }
 }

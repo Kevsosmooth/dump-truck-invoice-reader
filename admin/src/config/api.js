@@ -1,15 +1,17 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+// In production, VITE_API_URL should be the backend URL (e.g., https://dump-truck-invoice-reader.onrender.com)
+// In development, it defaults to the local backend
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: `${BACKEND_URL}/api`,
   withCredentials: true,
 });
 
 // Create a separate instance for admin API calls
 const adminAPI = axios.create({
-  baseURL: `${API_BASE_URL}/admin`,
+  baseURL: `${BACKEND_URL}/api/admin`,
   withCredentials: true,
 });
 
