@@ -170,13 +170,18 @@ router.post('/login', async (req, res) => {
 
 // Google OAuth
 router.get('/google', (req, res, next) => {
-  // Store admin flag in session if present
-  if (req.query.admin === 'true') {
-    req.session = req.session || {};
-    req.session.isAdminLogin = true;
-    console.log('Admin login flag set in session:', req.session.isAdminLogin);
+  // Pass state parameter through to Google OAuth
+  const authenticateOptions = { 
+    scope: ['profile', 'email'],
+    session: false
+  };
+  
+  // If state parameter exists, pass it through
+  if (req.query.state) {
+    authenticateOptions.state = req.query.state;
   }
-  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  
+  passport.authenticate('google', authenticateOptions)(req, res, next);
 });
 
 router.get('/google/callback',
@@ -185,16 +190,20 @@ router.get('/google/callback',
     try {
       const user = req.user;
       
-      // Check if this is an admin login attempt
-      const isAdminLogin = req.session?.isAdminLogin === true;
-      console.log('Google callback - isAdminLogin:', isAdminLogin, 'session:', req.session);
+      // Check if this is an admin login attempt by decoding state parameter
+      let isAdminLogin = false;
+      
+      if (req.query.state) {
+        try {
+          const stateData = JSON.parse(Buffer.from(req.query.state, 'base64').toString());
+          isAdminLogin = stateData.isAdmin === true;
+          console.log('Google callback - decoded state:', stateData);
+        } catch (e) {
+          console.log('Failed to decode state parameter:', e);
+        }
+      }
       
       if (isAdminLogin) {
-        // Clean up session flag
-        if (req.session) {
-          delete req.session.isAdminLogin;
-        }
-        
         // Redirect to admin auth handler
         return res.redirect(`/api/admin/auth/google/callback?userId=${user.id}`);
       }

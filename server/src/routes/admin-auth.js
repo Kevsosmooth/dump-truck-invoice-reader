@@ -73,8 +73,14 @@ router.post('/login', (req, res, next) => {
 
 // Google OAuth for Admin
 router.get('/google', (req, res, next) => {
-  // Redirect to regular Google OAuth with admin parameter
-  const googleAuthUrl = `${req.protocol}://${req.get('host')}/auth/google?admin=true`;
+  // Create a state parameter to identify this as an admin login
+  const state = Buffer.from(JSON.stringify({ 
+    isAdmin: true, 
+    timestamp: Date.now() 
+  })).toString('base64');
+  
+  // Redirect to regular Google OAuth with state parameter
+  const googleAuthUrl = `${req.protocol}://${req.get('host')}/auth/google?state=${state}`;
   res.redirect(googleAuthUrl);
 });
 
