@@ -62,11 +62,12 @@ app.use(cookieParser());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'admin-dashboard-secret-key',
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true, // Changed to true to ensure session is saved
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 60000 // 1 minute - just for OAuth flow
+    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'strict',
+    maxAge: 5 * 60 * 1000 // 5 minutes - enough for OAuth flow
   }
 }));
 

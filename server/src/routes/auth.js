@@ -174,6 +174,7 @@ router.get('/google', (req, res, next) => {
   if (req.query.admin === 'true') {
     req.session = req.session || {};
     req.session.isAdminLogin = true;
+    console.log('Admin login flag set in session:', req.session.isAdminLogin);
   }
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
@@ -186,6 +187,7 @@ router.get('/google/callback',
       
       // Check if this is an admin login attempt
       const isAdminLogin = req.session?.isAdminLogin === true;
+      console.log('Google callback - isAdminLogin:', isAdminLogin, 'session:', req.session);
       
       if (isAdminLogin) {
         // Clean up session flag
