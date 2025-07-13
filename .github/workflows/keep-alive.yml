@@ -25,9 +25,9 @@ jobs:
             --fail \
             || echo "Server ping failed (this is normal if the server was sleeping)"
           
-          # Also ping the health endpoint if available
+          # Also ping the health endpoint
           echo "Pinging health endpoint..."
-          curl -X GET "$SERVER_URL/health" \
+          curl -X GET "$SERVER_URL/api/health" \
             --max-time 30 \
             --silent \
             --show-error \
