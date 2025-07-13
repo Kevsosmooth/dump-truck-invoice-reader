@@ -54,7 +54,7 @@ export default function Dashboard() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const { data: activityData, isLoading: activityLoading } = useQuery({
+  const { data: activityData, isFetching: activityLoading } = useQuery({
     queryKey: ['recentActivity', activityPage],
     queryFn: async () => {
       const response = await api.get('/admin/activity/recent', {
@@ -63,6 +63,7 @@ export default function Dashboard() {
       return response.data;
     },
     keepPreviousData: true, // Smooth pagination
+    staleTime: 5000, // Consider data fresh for 5 seconds
   });
 
   const { data: healthData } = useQuery({
@@ -130,8 +131,8 @@ export default function Dashboard() {
             Latest system events and user activities
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
+        <CardContent className="pt-6 relative">
+          <div className="space-y-4 min-h-[320px]">
             {activityData?.recentActivity?.map((activity) => (
               <div key={activity.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
                 <div className="h-2 w-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg" />
@@ -143,8 +144,15 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-            {(!activityData?.recentActivity || activityData.recentActivity.length === 0) && (
+            {(!activityData?.recentActivity || activityData.recentActivity.length === 0) && !activityLoading && (
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No recent activity</p>
+            )}
+            
+            {/* Loading overlay */}
+            {activityLoading && (
+              <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm flex items-center justify-center rounded-lg transition-opacity duration-200">
+                <div className="h-6 w-6 animate-spin rounded-full border-3 border-indigo-600 border-t-transparent"></div>
+              </div>
             )}
           </div>
           
@@ -159,7 +167,7 @@ export default function Dashboard() {
                   variant="outline"
                   size="sm"
                   onClick={() => setActivityPage(prev => Math.max(1, prev - 1))}
-                  disabled={activityPage === 1}
+                  disabled={activityPage === 1 || activityLoading}
                   className="gap-1"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -169,7 +177,7 @@ export default function Dashboard() {
                   variant="outline"
                   size="sm"
                   onClick={() => setActivityPage(prev => Math.min(activityData.pagination.totalPages, prev + 1))}
-                  disabled={activityPage === activityData.pagination.totalPages}
+                  disabled={activityPage === activityData.pagination.totalPages || activityLoading}
                   className="gap-1"
                 >
                   Next

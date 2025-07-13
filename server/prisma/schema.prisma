@@ -54,7 +54,6 @@ model Organization {
   updatedAt    DateTime      @default(now()) @updatedAt
   customModels CustomModel[]
   user         User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  modelAccess  ModelAccess[]
 }
 
 model CustomModel {

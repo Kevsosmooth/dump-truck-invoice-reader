@@ -24,9 +24,27 @@ async function migrateEnvToDatabase() {
     console.log(`📋 Found model in .env: ${envModelId}`);
 
     // 2. Check if this model is already configured in the database
-    const existingConfig = await prisma.modelConfiguration.findUnique({
-      where: { azureModelId: envModelId }
-    });
+    // First, let's check if the table exists and has the right columns
+    try {
+      const tableCheck = await prisma.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'ModelConfiguration' 
+        AND table_schema = 'public'
+      `;
+      console.log('ModelConfiguration columns:', tableCheck);
+    } catch (err) {
+      console.log('Could not check table columns:', err.message);
+    }
+
+    // Try to query without using displayName field
+    const existingConfig = await prisma.$queryRaw`
+      SELECT * FROM "ModelConfiguration" 
+      WHERE "azureModelId" = ${envModelId}
+      LIMIT 1
+    `;
+    
+    console.log('Raw query result:', existingConfig);
 
     if (existingConfig) {
       console.log(`✅ Model ${envModelId} is already configured in the database`);
