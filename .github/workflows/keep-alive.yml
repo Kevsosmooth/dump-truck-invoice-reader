@@ -1,0 +1,34 @@
+name: Keep Render Server Alive
+
+on:
+  schedule:
+    # Run every hour at minute 30
+    - cron: '30 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Server
+        run: |
+          SERVER_URL="https://dump-truck-invoice-reader.onrender.com"
+          
+          echo "Pinging server at: $SERVER_URL"
+          
+          # Send GET request with 30 second timeout
+          curl -X GET "$SERVER_URL" \
+            -H "User-Agent: GitHub-Actions-Keep-Alive" \
+            --max-time 30 \
+            --silent \
+            --show-error \
+            --fail \
+            || echo "Server ping failed (this is normal if the server was sleeping)"
+          
+          # Also ping the health endpoint if available
+          echo "Pinging health endpoint..."
+          curl -X GET "$SERVER_URL/health" \
+            --max-time 30 \
+            --silent \
+            --show-error \
+            || echo "Health endpoint not available"
