@@ -105,7 +105,6 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
         status: 'UPLOADING',
         blobPrefix,
         modelId,
-        modelConfigId, // Store the model configuration ID
         expiresAt,
       },
     });
@@ -160,7 +159,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount,
               status: 'QUEUED',
               blobUrl,
-              modelConfigId,
+              // modelConfigId, // TODO: Add this field to local database
             },
           });
 
@@ -233,7 +232,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount: 1,
               status: 'QUEUED',
               blobUrl,
-              modelConfigId,
+              // modelConfigId, // TODO: Add this field to local database
             },
           });
           
@@ -250,7 +249,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               parentJobId: parentJob.id,
               splitPageNumber: 1,
               blobUrl: pageBlobUrl,
-              modelConfigId,
+              // modelConfigId, // TODO: Add this field to local database
             },
           });
 
@@ -777,25 +776,8 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Define allowed fields for Silvi Reader model (only fields that actually exist)
-const SILVI_READER_ALLOWED_FIELDS = [
-  'Date',
-  'Company Name',
-  'Delivery Address', 
-  'Customer Name',
-  'Ticket #',
-  'Time',
-  'Tons',
-  'Fuel Surcharge',
-  'Materials Hauled',
-  'License #',
-  'Tare',
-  'Net',
-  'Gross Weight',
-  'Customer #',
-  'Order #',
-  'Billing Address' // Adding back Billing Address if it exists
-];
+// Dynamic field collection will be built from actual extracted data
+// No hardcoded field list - we'll use all fields from the model configuration
 
 // Fields to exclude from Excel export
 const EXCLUDED_FIELDS = [
@@ -905,17 +887,46 @@ async function generateExcelReport(session) {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Extracted Data');
 
-  // Create fixed columns based on SILVI_READER_ALLOWED_FIELDS
+  // First, collect all unique field names from all jobs
+  const allFieldNames = new Set();
+  
+  // Scan through all completed jobs to find all field names
+  for (const job of session.jobs) {
+    if (job.status === 'COMPLETED' && job.extractedFields) {
+      Object.keys(job.extractedFields).forEach(fieldName => {
+        // Skip internal fields
+        if (!fieldName.startsWith('_') && !EXCLUDED_FIELDS.includes(fieldName)) {
+          allFieldNames.add(fieldName);
+        }
+      });
+    }
+  }
+
+  // Convert to array and sort for consistent column order
+  const sortedFieldNames = Array.from(allFieldNames).sort((a, b) => {
+    // Prioritize certain fields to appear first
+    const priorityFields = ['Date', 'Company Name', 'Customer Name', 'Ticket #', 'Invoice Number'];
+    const aIndex = priorityFields.indexOf(a);
+    const bIndex = priorityFields.indexOf(b);
+    
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    
+    return a.localeCompare(b);
+  });
+
+  // Create columns dynamically based on discovered fields
   const columns = [
     { header: 'File Name', key: 'fileName', width: 30 }
   ];
 
-  // Add columns for each allowed field in the order they appear in the Python code
-  SILVI_READER_ALLOWED_FIELDS.forEach(fieldName => {
+  // Add columns for each discovered field
+  sortedFieldNames.forEach(fieldName => {
     columns.push({
       header: fieldName,
       key: fieldName,
-      width: fieldName === 'Delivery Address' || fieldName === 'Materials Hauled' ? 25 : 20
+      width: fieldName.toLowerCase().includes('address') || fieldName.toLowerCase().includes('description') ? 25 : 20
     });
   });
 
@@ -938,14 +949,14 @@ async function generateExcelReport(session) {
         confidence: fields._confidence ? `${(fields._confidence * 100).toFixed(1)}%` : '',
       };
 
-      // Initialize all allowed fields with empty strings
-      SILVI_READER_ALLOWED_FIELDS.forEach(fieldName => {
+      // Initialize all discovered fields with empty strings
+      sortedFieldNames.forEach(fieldName => {
         rowData[fieldName] = '';
       });
 
-      // Add field values only for allowed fields
+      // Add field values for all fields (no filtering)
       Object.entries(fields).forEach(([fieldName, fieldData]) => {
-        if (!fieldName.startsWith('_') && SILVI_READER_ALLOWED_FIELDS.includes(fieldName)) {
+        if (!fieldName.startsWith('_') && !EXCLUDED_FIELDS.includes(fieldName)) {
           // Handle different field structures
           if (typeof fieldData === 'object' && fieldData !== null) {
             // Check field kind first

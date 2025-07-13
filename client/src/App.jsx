@@ -2195,13 +2195,18 @@ function JobItemWithDownload({ job }) {
   };
   
   // Extract amount from data if available
+  // Look for any field that might contain amount data based on value pattern
   let amount = null;
   if (job.extractedData && !Array.isArray(job.extractedData)) {
-    const amountFields = ['InvoiceTotal', 'TotalAmount', 'Total', 'AmountDue', 'Amount'];
-    for (const field of amountFields) {
-      if (job.extractedData[field]?.value) {
-        amount = job.extractedData[field].value;
-        break;
+    // Check all fields for currency/amount patterns
+    for (const [fieldName, fieldData] of Object.entries(job.extractedData)) {
+      if (fieldData?.value && typeof fieldData.value === 'string') {
+        // Check if value looks like a currency amount (e.g., $123.45, 123.45)
+        const currencyPattern = /^\$?\d+(?:,\d{3})*(?:\.\d{2})?$/;
+        if (currencyPattern.test(fieldData.value.trim())) {
+          amount = fieldData.value;
+          break;
+        }
       }
     }
   }

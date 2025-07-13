@@ -47,6 +47,8 @@ export async function postProcessJob(jobId) {
     let fields = job.extractedFields;
     
     // Apply field defaults if model config ID is available
+    // TODO: Re-enable when modelConfigId field is added to local database
+    /*
     if (job.modelConfigId) {
       console.log(`[POST-PROCESS] Applying field defaults for model config: ${job.modelConfigId}`);
       const context = {
@@ -68,72 +70,87 @@ export async function postProcessJob(jobId) {
         // Continue with original fields if defaults fail
       }
     }
+    */
     
-    // Try to find company name, ticket number, and date
+    // Try to find company name, ticket number, and date using intelligent field detection
     let companyName = '';
     let ticketNumber = '';
     let date = '';
 
-    // Common field mappings
-    const companyFields = ['Company Name', 'CompanyName', 'Company', 'Customer Name', 'CustomerName'];
-    const ticketFields = ['Ticket #', 'TicketNumber', 'Ticket Number', 'Invoice Number', 'InvoiceNumber'];
-    const dateFields = ['Date', 'InvoiceDate', 'Invoice Date', 'TransactionDate'];
+    // Helper functions to detect field types by name patterns
+    const isCompanyField = (fieldName) => {
+      const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
+      return normalized.includes('company') || 
+             normalized.includes('customer') || 
+             normalized.includes('client') ||
+             normalized.includes('vendor') ||
+             normalized.includes('supplier');
+    };
 
-    // Extract company name
-    for (const fieldName of companyFields) {
-      if (fields[fieldName]) {
-        const value = extractFieldValue(fields[fieldName]);
-        console.log(`Checking company field '${fieldName}': ${value}`);
-        if (value) {
-          companyName = value;
-          break;
-        }
+    const isTicketField = (fieldName) => {
+      const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
+      return normalized.includes('ticket') || 
+             normalized.includes('invoice') && normalized.includes('number') ||
+             normalized.includes('reference') ||
+             normalized.includes('order') && normalized.includes('number');
+    };
+
+    const isDateField = (fieldName) => {
+      const normalized = fieldName.toLowerCase();
+      return normalized.includes('date') || 
+             normalized.includes('time') && normalized.includes('stamp');
+    };
+
+    // Extract values based on field name patterns
+    for (const [fieldName, fieldValue] of Object.entries(fields)) {
+      const value = extractFieldValue(fieldValue);
+      
+      if (!value) continue;
+
+      // Company name
+      if (!companyName && isCompanyField(fieldName)) {
+        console.log(`Found company field '${fieldName}': ${value}`);
+        companyName = value;
       }
-    }
 
-    // Extract ticket number
-    for (const fieldName of ticketFields) {
-      if (fields[fieldName]) {
-        const value = extractFieldValue(fields[fieldName]);
-        console.log(`Checking ticket field '${fieldName}': ${value}`);
-        if (value) {
-          ticketNumber = value;
-          break;
-        }
+      // Ticket/Invoice number
+      if (!ticketNumber && isTicketField(fieldName)) {
+        console.log(`Found ticket field '${fieldName}': ${value}`);
+        ticketNumber = value;
       }
-    }
 
-    // Extract date - check for any field containing "date" (case-insensitive)
-    // First try exact matches from predefined list
-    for (const fieldName of dateFields) {
-      if (fields[fieldName]) {
-        
-        const value = extractFieldValue(fields[fieldName]);
-        console.log(`Extracted value from '${fieldName}': ${value}`);
-        
-        if (value) {
-          // Format date as YYYY-MM-DD
-          date = formatDate(value);
+      // Date
+      if (!date && isDateField(fieldName)) {
+        console.log(`Found date field '${fieldName}': ${value}`);
+        const formattedDate = formatDate(value);
+        if (formattedDate && formattedDate !== new Date().toISOString().split('T')[0]) {
+          date = formattedDate;
           console.log(`Formatted date: ${date}`);
-          break;
         }
       }
     }
-    
-    // If no date found, check all fields for anything containing "date" (case-insensitive)
-    if (!date) {
+
+    // Fallback: If no specific fields found, try to infer from all fields
+    if (!companyName || !ticketNumber || !date) {
+      console.log('Some fields missing, attempting fallback extraction...');
+      
+      // Look for the first non-empty field value that looks like what we need
       for (const [fieldName, fieldValue] of Object.entries(fields)) {
-        if (fieldName.toLowerCase().includes('date')) {
-          
-          const value = extractFieldValue(fieldValue);
-          console.log(`Extracted value from '${fieldName}': ${value}`);
-          
-          if (value) {
-            date = formatDate(value);
-            console.log(`Formatted date from ${fieldName}: ${date}`);
-            if (date && date !== new Date().toISOString().split('T')[0]) {
-              break; // Found a valid date that's not today's date
-            }
+        const value = extractFieldValue(fieldValue);
+        if (!value) continue;
+
+        // If no ticket number and value looks like a number/reference
+        if (!ticketNumber && /^[A-Z0-9\-#]+$/i.test(value) && value.length <= 20) {
+          ticketNumber = value;
+          console.log(`Using '${fieldName}' as ticket number: ${value}`);
+        }
+
+        // If no date and value can be parsed as date
+        if (!date) {
+          const parsedDate = formatDate(value);
+          if (parsedDate && parsedDate !== new Date().toISOString().split('T')[0]) {
+            date = parsedDate;
+            console.log(`Using '${fieldName}' as date: ${date}`);
           }
         }
       }

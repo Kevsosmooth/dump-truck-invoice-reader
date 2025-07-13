@@ -51,7 +51,8 @@
       "mcp__azure__azmcp-monitor-metrics-query",
       "Bash(git reset:*)",
       "WebFetch(domain:render.com)",
-      "mcp__supabase__apply_migration"
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__list_extensions"
     ],
     "deny": []
   },

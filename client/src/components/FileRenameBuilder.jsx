@@ -25,37 +25,93 @@ export function FileRenameBuilder({
   const [customText, setCustomText] = useState('');
   const [previewName, setPreviewName] = useState(originalFileName);
   
-  // Common templates
-  const templates = [
-    {
-      name: 'Company + Ticket + Date',
-      fields: [
-        { key: 'CustomerName', type: 'field' },
-        { value: '_', type: 'text' },
-        { key: 'TicketNumber', type: 'field' },
-        { value: '_', type: 'text' },
-        { key: '_date', type: 'field' }
-      ]
-    },
-    {
-      name: 'Date + Company + Amount',
-      fields: [
-        { key: '_date', type: 'field' },
-        { value: '_', type: 'text' },
-        { key: 'CustomerName', type: 'field' },
-        { value: '_', type: 'text' },
-        { key: 'InvoiceTotal', type: 'field' }
-      ]
-    },
-    {
-      name: 'Invoice# + Date',
-      fields: [
-        { key: 'InvoiceNumber', type: 'field' },
-        { value: '_', type: 'text' },
-        { key: '_date', type: 'field' }
-      ]
+  // Dynamic templates based on available fields
+  const generateTemplates = () => {
+    const templates = [];
+    const fieldKeys = Object.keys(availableFields || {});
+    
+    // Helper to check if a field type exists
+    const hasFieldType = (pattern) => fieldKeys.some(key => 
+      key.toLowerCase().includes(pattern.toLowerCase())
+    );
+    
+    // Find specific field types
+    const companyField = fieldKeys.find(key => 
+      key.toLowerCase().includes('company') || 
+      key.toLowerCase().includes('customer')
+    );
+    const ticketField = fieldKeys.find(key => 
+      key.toLowerCase().includes('ticket') || 
+      key.toLowerCase().includes('invoice') && key.toLowerCase().includes('number')
+    );
+    const dateField = fieldKeys.find(key => 
+      key.toLowerCase().includes('date')
+    );
+    const amountField = fieldKeys.find(key => 
+      key.toLowerCase().includes('total') || 
+      key.toLowerCase().includes('amount')
+    );
+    
+    // Template 1: Company + Ticket + Date (if all fields exist)
+    if (companyField && ticketField) {
+      templates.push({
+        name: 'Company + Ticket' + (dateField ? ' + Date' : ''),
+        fields: [
+          { key: companyField, type: 'field' },
+          { value: '_', type: 'text' },
+          { key: ticketField, type: 'field' },
+          ...(dateField ? [
+            { value: '_', type: 'text' },
+            { key: dateField, type: 'field' }
+          ] : [])
+        ]
+      });
     }
-  ];
+    
+    // Template 2: Date + Company + Amount (if fields exist)
+    if (dateField && companyField && amountField) {
+      templates.push({
+        name: 'Date + Company + Amount',
+        fields: [
+          { key: dateField, type: 'field' },
+          { value: '_', type: 'text' },
+          { key: companyField, type: 'field' },
+          { value: '_', type: 'text' },
+          { key: amountField, type: 'field' }
+        ]
+      });
+    }
+    
+    // Template 3: Simple field combinations
+    if (ticketField && dateField) {
+      templates.push({
+        name: 'Reference + Date',
+        fields: [
+          { key: ticketField, type: 'field' },
+          { value: '_', type: 'text' },
+          { key: dateField, type: 'field' }
+        ]
+      });
+    }
+    
+    // If no templates could be generated, provide a generic one
+    if (templates.length === 0 && fieldKeys.length > 0) {
+      templates.push({
+        name: 'First Two Fields',
+        fields: [
+          { key: fieldKeys[0], type: 'field' },
+          ...(fieldKeys.length > 1 ? [
+            { value: '_', type: 'text' },
+            { key: fieldKeys[1], type: 'field' }
+          ] : [])
+        ]
+      });
+    }
+    
+    return templates;
+  };
+  
+  const templates = generateTemplates();
   
   const addField = (field) => {
     const newTemplate = [...template, { type: 'field', value: field.key, displayName: field.displayName }];
