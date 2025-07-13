@@ -32,9 +32,13 @@ const corsOptions = {
       'http://localhost:5173',
       'http://localhost:5174', // Admin dashboard
       'http://localhost:3000',
+      // Production domains
+      'https://dump-truck-invoice-reader-admin.vercel.app', // Admin dashboard
+      'https://dump-truck-invoice-reader.vercel.app', // Main client (if deployed)
       // Add your Vercel domains here
       process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
       process.env.PRODUCTION_URL,
+      process.env.ADMIN_URL, // Optional: set this in Render env vars
     ].filter(Boolean); // Remove any undefined values
     
     if (allowedOrigins.indexOf(origin) !== -1) {
