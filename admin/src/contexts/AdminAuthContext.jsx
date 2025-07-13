@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 
 const AdminAuthContext = createContext({});
 
@@ -25,7 +25,7 @@ export const AdminAuthProvider = ({ children }) => {
     try {
       // Try to get user data from the /me endpoint
       // The cookie will be sent automatically with the request
-      const response = await api.get('/admin/auth/me');
+      const response = await adminAPI.get('/auth/me');
       setAdmin(response.data);
     } catch (error) {
       // If error, user is not authenticated
@@ -42,7 +42,7 @@ export const AdminAuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/admin/auth/login', { email, password });
+      const response = await adminAPI.post('/auth/login', { email, password });
       const { token, user } = response.data;
       localStorage.setItem('adminToken', token);
       setAdmin(user);
@@ -62,7 +62,7 @@ export const AdminAuthProvider = ({ children }) => {
     await new Promise(resolve => setTimeout(resolve, 500));
     
     try {
-      await api.post('/admin/auth/logout');
+      await adminAPI.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

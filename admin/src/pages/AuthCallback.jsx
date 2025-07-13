@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -15,7 +15,7 @@ export default function AuthCallback() {
         // We need to verify the auth and get the token for localStorage
         
         // Call the /me endpoint to verify authentication
-        const response = await api.get('/admin/auth/me');
+        const response = await adminAPI.get('/auth/me');
         
         if (response.data) {
           // Get the token from the response headers or generate one
