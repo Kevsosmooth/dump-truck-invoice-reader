@@ -9,7 +9,7 @@ const api = axios.create({
 
 // Create a separate instance for admin API calls
 const adminAPI = axios.create({
-  baseURL: `${API_BASE_URL}/api/admin`,
+  baseURL: `${API_BASE_URL}/admin`,
   withCredentials: true,
 });
 

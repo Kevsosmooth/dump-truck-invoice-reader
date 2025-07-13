@@ -12,17 +12,23 @@ export default function AuthCallback() {
       try {
         // Get token from URL params
         const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
+        let token = urlParams.get('token');
         
         if (!token) {
-          throw new Error('No authentication token received');
+          // Check if we already have a token in localStorage (might have been set by cookie)
+          token = localStorage.getItem('adminToken');
+          if (!token) {
+            throw new Error('No authentication token received');
+          }
+          // If we have a token in localStorage, we're already authenticated
+          console.log('Using existing token from localStorage');
+        } else {
+          // Store token in localStorage
+          localStorage.setItem('adminToken', token);
+          
+          // IMPORTANT: Remove token from URL to prevent exposure in browser history
+          window.history.replaceState({}, document.title, '/auth/callback');
         }
-        
-        // Store token in localStorage
-        localStorage.setItem('adminToken', token);
-        
-        // IMPORTANT: Remove token from URL to prevent exposure in browser history
-        window.history.replaceState({}, document.title, '/auth/callback');
         
         // Set up axios to use the token
         adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;

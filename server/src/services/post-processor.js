@@ -47,8 +47,6 @@ export async function postProcessJob(jobId) {
     let fields = job.extractedFields;
     
     // Apply field defaults if model config ID is available
-    // TODO: Re-enable when modelConfigId field is added to local database
-    /*
     if (job.modelConfigId) {
       console.log(`[POST-PROCESS] Applying field defaults for model config: ${job.modelConfigId}`);
       const context = {
@@ -70,7 +68,6 @@ export async function postProcessJob(jobId) {
         // Continue with original fields if defaults fail
       }
     }
-    */
     
     // Try to find company name, ticket number, and date using intelligent field detection
     let companyName = '';

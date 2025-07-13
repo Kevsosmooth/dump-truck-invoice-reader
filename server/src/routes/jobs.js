@@ -159,7 +159,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount,
               status: 'QUEUED',
               blobUrl,
-              // modelConfigId, // TODO: Add this field to local database
+              modelConfigId,
             },
           });
 
@@ -232,7 +232,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               pageCount: 1,
               status: 'QUEUED',
               blobUrl,
-              // modelConfigId, // TODO: Add this field to local database
+              modelConfigId,
             },
           });
           
@@ -249,7 +249,7 @@ router.post('/upload', authenticateToken, upload.array('files', 20), async (req,
               parentJobId: parentJob.id,
               splitPageNumber: 1,
               blobUrl: pageBlobUrl,
-              // modelConfigId, // TODO: Add this field to local database
+              modelConfigId,
             },
           });
 
