@@ -21,6 +21,9 @@ export default function AuthCallback() {
         // Store token in localStorage
         localStorage.setItem('adminToken', token);
         
+        // IMPORTANT: Remove token from URL to prevent exposure in browser history
+        window.history.replaceState({}, document.title, '/auth/callback');
+        
         // Set up axios to use the token
         adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         

@@ -29,6 +29,16 @@ export const AdminAuthProvider = ({ children }) => {
         throw new Error('No admin token found');
       }
       
+      // Check if token is expired (basic check)
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          throw new Error('Token expired');
+        }
+      } catch (e) {
+        console.warn('Could not parse token expiry');
+      }
+      
       // Set token in axios default headers
       adminAPI.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
