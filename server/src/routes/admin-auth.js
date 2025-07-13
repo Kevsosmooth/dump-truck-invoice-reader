@@ -84,7 +84,7 @@ router.get('/google/callback', async (req, res) => {
     const userId = req.query.userId;
     
     if (!userId) {
-      return res.redirect('http://localhost:5174/login?error=auth_failed');
+      return res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=auth_failed`);
     }
     
     // Fetch user details (convert string ID to integer)
@@ -94,12 +94,12 @@ router.get('/google/callback', async (req, res) => {
     
     // Check if user has admin role
     if (!user || user.role !== 'ADMIN') {
-      return res.redirect('http://localhost:5174/login?error=not_admin');
+      return res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=not_admin`);
     }
 
     // Check if account is active
     if (!user.isActive) {
-      return res.redirect('http://localhost:5174/login?error=account_disabled');
+      return res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=account_disabled`);
     }
 
       // Generate admin JWT token
@@ -114,7 +114,7 @@ router.get('/google/callback', async (req, res) => {
       
       if (!jwtSecret) {
         console.error('No JWT secret found. Please set JWT_SECRET or SESSION_SECRET in .env file');
-        return res.redirect('http://localhost:5174/login?error=auth_error');
+        return res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=auth_error`);
       }
       
       const token = jwt.sign(
@@ -163,10 +163,10 @@ router.get('/google/callback', async (req, res) => {
       });
 
     // Redirect to admin auth callback
-    res.redirect('http://localhost:5174/auth/callback');
+    res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/auth/callback`);
   } catch (error) {
     console.error('Admin Google auth error:', error);
-    res.redirect('http://localhost:5174/login?error=auth_error');
+    res.redirect(`${process.env.ADMIN_URL || 'http://localhost:5174'}/login?error=auth_error`);
   }
 });
 
