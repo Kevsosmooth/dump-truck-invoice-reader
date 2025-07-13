@@ -1003,7 +1003,9 @@ function App() {
 
             {/* Fields that will be extracted */}
             <div className="space-y-2">
-              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Fields to Extract:</h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                This model will extract the following fields:
+              </h4>
               <div className="max-h-40 overflow-y-auto border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
                 {modelFields === null ? (
                   <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">
@@ -1022,7 +1024,7 @@ function App() {
                       .map(([field, info]) => (
                         <div key={field} className="flex items-start gap-1">
                           <span className="text-gray-400 dark:text-gray-500">•</span>
-                          <span>{info.description || field.replace(/_/g, ' ')}</span>
+                          <span>{info.displayName || field.replace(/_/g, ' ')}</span>
                         </div>
                       ))}
                   </div>

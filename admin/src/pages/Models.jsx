@@ -256,13 +256,13 @@ export default function Models() {
                           <Settings className="mr-2 h-4 w-4" />
                           Configure
                         </DropdownMenuItem>
-                        {model.isConfigured && (
+                        {model.id && (
                           <DropdownMenuItem onClick={() => {
                             setSelectedModel(model);
                             setShowFieldsModal(true);
                           }}>
                             <FileText className="mr-2 h-4 w-4" />
-                            Configure Fields
+                            Configure Field Defaults
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => {

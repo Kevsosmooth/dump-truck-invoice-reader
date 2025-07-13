@@ -28,7 +28,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 
 const defaultValueTypes = [
   { value: 'STATIC', label: 'Static Text', icon: Type },
@@ -62,7 +62,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
   const fetchFields = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/admin/models/${modelConfig.id}/fields`);
+      const response = await adminAPI.get(`/models/${modelConfig.id}/fields`);
       setFields(response.data.fields);
     } catch (error) {
       console.error('Failed to fetch fields:', error);
@@ -111,7 +111,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
   const handleSave = async () => {
     try {
       setSaving(true);
-      await api.put(`/admin/models/${modelConfig.id}/fields`, { fields });
+      await adminAPI.put(`/models/${modelConfig.id}/fields`, { fields });
       toast.success('Field configurations saved successfully');
       onUpdate({ ...modelConfig, fields });
       onClose();
@@ -144,9 +144,9 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
   };
 
   const getDefaultValuePreview = (field) => {
-    if (!field.defaultValue && field.defaultValueType !== 'EMPTY') return '';
+    if (!field.defaultValue && field.defaultType !== 'EMPTY') return '';
     
-    switch (field.defaultValueType) {
+    switch (field.defaultType || field.defaultValueType) {
       case 'STATIC':
         return field.defaultValue || '';
       case 'TODAY':
@@ -186,12 +186,25 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col bg-white dark:bg-gray-900">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">
-            Configure Fields - {modelConfig?.displayName || modelConfig?.azureModelId}
+            Configure Field Defaults - {modelConfig?.displayName || modelConfig?.azureModelId}
           </DialogTitle>
           <DialogDescription className="text-gray-600 dark:text-gray-400">
-            Customize field names, enable/disable fields, and set default values
+            Set default values for fields when Azure Document Intelligence cannot extract data
           </DialogDescription>
         </DialogHeader>
+
+        {/* Information Box */}
+        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+            <div className="text-sm text-blue-800 dark:text-blue-200">
+              <p className="font-medium mb-1">About Field Configuration</p>
+              <p>Field names are extracted from your Azure custom model and cannot be changed. 
+              You can configure default values that will be used when Azure Document Intelligence 
+              cannot extract data from a document.</p>
+            </div>
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto px-1">
           {loading ? (
@@ -210,7 +223,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                 
                 return (
                   <div
-                    key={field.id || field.azureFieldName}
+                    key={field.id || field.fieldName}
                     draggable
                     onDragStart={(e) => handleDragStart(e, index)}
                     onDragOver={handleDragOver}
@@ -229,7 +242,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                         <div className="flex items-center gap-2 mb-2">
                           <FieldIcon className="h-4 w-4 text-gray-500" />
                           <span className="font-medium text-gray-900 dark:text-white">
-                            {field.azureFieldName}
+                            {field.fieldName}
                           </span>
                           <Badge variant="outline" className="text-xs">
                             {field.fieldType || 'String'}
@@ -255,25 +268,27 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                     {/* Field Configuration */}
                     {isEnabled && (
                       <div className="space-y-3 pl-8">
-                        {/* Custom Display Name */}
+                        {/* Field Display Name (Read-only) */}
                         <div>
-                          <Label className="text-sm text-gray-700 dark:text-gray-300">Display Name</Label>
-                          <Input
-                            value={field.customFieldName || ''}
-                            onChange={(e) => handleFieldUpdate(index, { customFieldName: e.target.value })}
-                            placeholder={field.azureFieldName.replace(/_/g, ' ')}
-                            className="mt-1"
-                          />
+                          <Label className="text-sm text-gray-700 dark:text-gray-300">Field Name</Label>
+                          <div className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded-md">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              {field.displayName || field.fieldName}
+                            </span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                              (Azure: {field.fieldName})
+                            </span>
+                          </div>
                         </div>
 
                         {/* Default Value Configuration */}
                         <div>
-                          <Label className="text-sm text-gray-700 dark:text-gray-300">Default Value</Label>
+                          <Label className="text-sm text-gray-700 dark:text-gray-300">Default Value (when extraction fails)</Label>
                           <div className="flex gap-2 mt-1">
                             <Select
-                              value={field.defaultValueType || 'EMPTY'}
+                              value={field.defaultType || field.defaultValueType || 'EMPTY'}
                               onValueChange={(value) => handleFieldUpdate(index, { 
-                                defaultValueType: value,
+                                defaultType: value,
                                 defaultValue: value === 'TODAY' ? 'YYYY-MM-DD' : ''
                               })}
                             >
@@ -296,7 +311,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                             </Select>
 
                             {/* Additional configuration based on type */}
-                            {field.defaultValueType === 'STATIC' && (
+                            {(field.defaultType || field.defaultValueType) === 'STATIC' && (
                               <Input
                                 value={field.defaultValue || ''}
                                 onChange={(e) => handleFieldUpdate(index, { defaultValue: e.target.value })}
@@ -305,7 +320,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                               />
                             )}
 
-                            {field.defaultValueType === 'TODAY' && (
+                            {(field.defaultType || field.defaultValueType) === 'TODAY' && (
                               <Select
                                 value={field.defaultValue || 'YYYY-MM-DD'}
                                 onValueChange={(value) => handleFieldUpdate(index, { defaultValue: value })}
@@ -323,7 +338,7 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                               </Select>
                             )}
 
-                            {field.defaultValueType === 'CALCULATED' && (
+                            {(field.defaultType || field.defaultValueType) === 'CALCULATED' && (
                               <Input
                                 value={field.defaultValue || ''}
                                 onChange={(e) => handleFieldUpdate(index, { defaultValue: e.target.value })}
@@ -334,14 +349,14 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                           </div>
 
                           {/* Help text for calculated fields */}
-                          {field.defaultValueType === 'CALCULATED' && (
+                          {(field.defaultType || field.defaultValueType) === 'CALCULATED' && (
                             <p className="text-xs text-gray-500 dark:text-gray-400 pl-[208px]">
                               Available tokens: {{TODAY}}, {{CURRENT_YEAR}}, {{CURRENT_MONTH}}, {{USER_NAME}}, {{USER_EMAIL}}, {{TIMESTAMP}}
                             </p>
                           )}
 
                           {/* Preview */}
-                          {field.defaultValueType && field.defaultValueType !== 'EMPTY' && (
+                          {(field.defaultType || field.defaultValueType) && (field.defaultType || field.defaultValueType) !== 'EMPTY' && (
                             <div className="mt-2 flex items-center gap-2 text-sm">
                               <Eye className="h-4 w-4 text-gray-400" />
                               <span className="text-gray-500 dark:text-gray-400">Preview:</span>

@@ -87,12 +87,24 @@ class ModelManager {
       return null;
     }
 
+    // Transform field configs into an object for client compatibility
+    const fieldsObject = {};
+    access.modelConfig.fieldConfigs.forEach(field => {
+      fieldsObject[field.fieldName] = {
+        displayName: field.displayName,
+        fieldType: field.fieldType,
+        isRequired: field.isRequired,
+        defaultType: field.defaultType,
+        defaultValue: field.defaultValue
+      };
+    });
+    
     return {
       id: access.modelConfig.id,
       displayName: access.customName || access.modelConfig.displayName,
       azureModelId: access.modelConfig.azureModelId,
       description: access.modelConfig.description,
-      fields: access.modelConfig.fieldConfigs
+      fields: fieldsObject
     };
   }
 
@@ -103,31 +115,36 @@ class ModelManager {
     const { customName, expiresAt } = options;
     
     const results = await Promise.all(
-      userIds.map(userId => 
-        prisma.modelAccess.upsert({
-          where: {
-            modelConfigId_userId: {
+      userIds.map(async (userId) => {
+        try {
+          return await prisma.modelAccess.upsert({
+            where: {
+              modelConfigId_userId: {
+                modelConfigId,
+                userId: parseInt(userId) // Ensure userId is an integer
+              }
+            },
+            create: {
               modelConfigId,
-              userId
+              userId: parseInt(userId),
+              customName: customName || null,
+              grantedBy: grantedBy || null,
+              expiresAt: expiresAt || null,
+              isActive: true
+            },
+            update: {
+              isActive: true,
+              customName: customName || null,
+              grantedBy: grantedBy || null,
+              expiresAt: expiresAt || null,
+              grantedAt: new Date()
             }
-          },
-          create: {
-            modelConfigId,
-            userId,
-            customName,
-            grantedBy,
-            expiresAt,
-            isActive: true
-          },
-          update: {
-            isActive: true,
-            customName,
-            grantedBy,
-            expiresAt,
-            grantedAt: new Date()
-          }
-        })
-      )
+          });
+        } catch (error) {
+          console.error(`Error granting access to user ${userId}:`, error);
+          throw error;
+        }
+      })
     );
     
     return results;
@@ -453,7 +470,12 @@ class ModelManager {
             email: true,
             firstName: true,
             lastName: true,
-            organization: true
+            organization: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
           }
         },
         grantedByUser: {
