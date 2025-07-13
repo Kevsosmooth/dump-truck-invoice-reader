@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -72,7 +72,7 @@ export default function CreditHistory() {
         }
       });
 
-      const response = await api.get('/admin/credits/transactions', { params });
+      const response = await adminAPI.get('/credits/transactions', { params });
       setTransactions(response.data.transactions);
       setPagination(response.data.pagination);
     } catch (error) {
@@ -98,7 +98,7 @@ export default function CreditHistory() {
         }
       });
 
-      const response = await api.get('/admin/credits/transactions/export', {
+      const response = await adminAPI.get('/credits/transactions/export', {
         params,
         responseType: 'blob'
       });

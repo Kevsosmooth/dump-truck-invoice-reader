@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { format } from 'date-fns';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
@@ -50,7 +50,7 @@ export default function Analytics() {
   const { data: userAnalytics, isLoading: loadingUsers } = useQuery({
     queryKey: ['userAnalytics', dateRange],
     queryFn: async () => {
-      const response = await api.get(`/admin/analytics/users?days=${dateRange}`);
+      const response = await adminAPI.get(`/analytics/users?days=${dateRange}`);
       return response.data;
     },
   });
@@ -58,7 +58,7 @@ export default function Analytics() {
   const { data: creditAnalytics, isLoading: loadingCredits } = useQuery({
     queryKey: ['creditAnalytics', dateRange],
     queryFn: async () => {
-      const response = await api.get(`/admin/analytics/credits?days=${dateRange}`);
+      const response = await adminAPI.get(`/analytics/credits?days=${dateRange}`);
       return response.data;
     },
   });
@@ -66,7 +66,7 @@ export default function Analytics() {
   const { data: documentAnalytics, isLoading: loadingDocuments } = useQuery({
     queryKey: ['documentAnalytics', dateRange],
     queryFn: async () => {
-      const response = await api.get(`/admin/analytics/documents?days=${dateRange}`);
+      const response = await adminAPI.get(`/analytics/documents?days=${dateRange}`);
       return response.data;
     },
   });
@@ -74,7 +74,7 @@ export default function Analytics() {
   const { data: errorLogs, isLoading: loadingErrors } = useQuery({
     queryKey: ['errorLogs'],
     queryFn: async () => {
-      const response = await api.get('/admin/analytics/errors?limit=50');
+      const response = await adminAPI.get('/admin/analytics/errors?limit=50');
       return response.data;
     },
   });
@@ -82,7 +82,7 @@ export default function Analytics() {
   const { data: revenueAnalytics, isLoading: loadingRevenue } = useQuery({
     queryKey: ['revenueAnalytics', dateRange],
     queryFn: async () => {
-      const response = await api.get(`/admin/analytics/revenue?days=${dateRange}`);
+      const response = await adminAPI.get(`/analytics/revenue?days=${dateRange}`);
       return response.data;
     },
   });

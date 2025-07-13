@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { AlertCircle, Settings } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { toast } from 'sonner';
 
 export default function ModelConfigModal({ model, isOpen, onClose }) {

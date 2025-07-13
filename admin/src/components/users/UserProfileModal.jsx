@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -54,7 +54,7 @@ export default function UserProfileModal({ user, isOpen, onClose, onUpdate }) {
   const fetchUserTransactions = async () => {
     try {
       setTransactionsLoading(true);
-      const response = await api.get(`/admin/users/${user.id}/transactions`);
+      const response = await adminAPI.get(`/users/${user.id}/transactions`);
       setTransactions(response.data);
     } catch (error) {
       console.error('Failed to fetch user transactions:', error);
@@ -78,7 +78,7 @@ export default function UserProfileModal({ user, isOpen, onClose, onUpdate }) {
         return;
       }
 
-      const response = await api.patch(`/admin/users/${user.id}`, updates);
+      const response = await adminAPI.patch(`/users/${user.id}`, updates);
       
       toast.success('User updated successfully');
       onUpdate(response.data);
@@ -107,7 +107,7 @@ export default function UserProfileModal({ user, isOpen, onClose, onUpdate }) {
       setLoading(true);
       
       // Use the new credit adjustment endpoint
-      const response = await api.post(`/admin/users/${user.id}/adjust-credits`, {
+      const response = await adminAPI.post(`/users/${user.id}/adjust-credits`, {
         action: creditAction,
         amount,
         reason: creditReason

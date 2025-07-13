@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Users, FileText, CreditCard, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 
 function StatsCard({ title, value, description, icon: Icon, trend }) {
   const gradientMap = {
@@ -46,7 +46,7 @@ export default function Dashboard() {
   const { data: stats, isLoading } = useQuery({
     queryKey: ['adminStats'],
     queryFn: async () => {
-      const response = await api.get('/admin/analytics/overview', {
+      const response = await adminAPI.get('/analytics/overview', {
         params: { page: 1, limit: 10 } // Get basic stats without pagination
       });
       return response.data;
@@ -57,7 +57,7 @@ export default function Dashboard() {
   const { data: activityData, isFetching: activityLoading } = useQuery({
     queryKey: ['recentActivity', activityPage],
     queryFn: async () => {
-      const response = await api.get('/admin/activity/recent', {
+      const response = await adminAPI.get('/activity/recent', {
         params: { page: activityPage, limit: activityLimit }
       });
       return response.data;
@@ -69,7 +69,7 @@ export default function Dashboard() {
   const { data: healthData } = useQuery({
     queryKey: ['systemHealth'],
     queryFn: async () => {
-      const response = await api.get('/admin/health/status');
+      const response = await adminAPI.get('/health/status');
       return response.data;
     },
     refetchInterval: 10000, // Refresh every 10 seconds

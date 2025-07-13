@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BarChart3, Users, FileText, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 
 export default function ModelStatsModal({ model, isOpen, onClose }) {
   // Fetch model statistics
@@ -11,7 +11,7 @@ export default function ModelStatsModal({ model, isOpen, onClose }) {
     queryKey: ['modelStats', model?.id],
     queryFn: async () => {
       if (!model?.id || !model?.isConfigured) return null;
-      const response = await api.get(`/admin/models/${model.id}/stats`);
+      const response = await adminAPI.get(`/models/${model.id}/stats`);
       return response.data.stats;
     },
     enabled: isOpen && model?.isConfigured,

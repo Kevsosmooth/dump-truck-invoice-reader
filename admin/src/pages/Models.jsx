@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,7 +57,7 @@ export default function Models() {
   const { data: modelsData, isLoading, refetch } = useQuery({
     queryKey: ['adminModels', search, filter],
     queryFn: async () => {
-      const response = await api.get('/admin/models', {
+      const response = await adminAPI.get('/models', {
         params: { search, filter }
       });
       return response.data;
@@ -68,7 +68,7 @@ export default function Models() {
   // Sync models mutation
   const syncModelsMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post('/admin/models/sync');
+      const response = await adminAPI.post('/models/sync');
       return response.data;
     },
     onSuccess: () => {
@@ -83,7 +83,7 @@ export default function Models() {
   // Update model configuration mutation
   const updateModelMutation = useMutation({
     mutationFn: async ({ configId, data }) => {
-      const response = await api.patch(`/admin/models/${configId}`, data);
+      const response = await adminAPI.patch(`/models/${configId}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -94,7 +94,7 @@ export default function Models() {
   // Configure new model mutation
   const configureModelMutation = useMutation({
     mutationFn: async ({ modelId, data }) => {
-      const response = await api.post(`/admin/models/${modelId}/configure`, data);
+      const response = await adminAPI.post(`/models/${modelId}/configure`, data);
       return response.data;
     },
     onSuccess: () => {

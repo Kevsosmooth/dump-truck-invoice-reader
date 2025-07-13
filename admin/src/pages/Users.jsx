@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,7 +35,7 @@ export default function Users() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/admin/users', {
+      const response = await adminAPI.get('/users', {
         params: {
           page: pagination.page,
           limit: pagination.limit,
@@ -53,7 +53,7 @@ export default function Users() {
 
   const toggleUserStatus = async (userId, currentStatus) => {
     try {
-      await api.patch(`/admin/users/${userId}`, {
+      await adminAPI.patch(`/users/${userId}`, {
         isActive: !currentStatus
       });
       fetchUsers(); // Refresh the list

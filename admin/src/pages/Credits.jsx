@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '@/config/api';
+import { adminAPI } from '@/config/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,8 +48,8 @@ export default function Credits() {
     try {
       setLoading(true);
       const [statsResponse, packagesResponse] = await Promise.all([
-        api.get('/admin/credits/stats'),
-        api.get('/admin/credits/packages')
+        adminAPI.get('/credits/stats'),
+        adminAPI.get('/credits/packages')
       ]);
 
       setCreditStats(statsResponse.data);
@@ -84,7 +84,7 @@ export default function Credits() {
 
     try {
       setProcessing(true);
-      const response = await api.post('/admin/credits/bulk-operation', {
+      const response = await adminAPI.post('/credits/bulk-operation', {
         emails,
         action: bulkAction,
         amount,
@@ -115,7 +115,7 @@ export default function Credits() {
 
   const updatePackage = async (packageId, updates) => {
     try {
-      await api.patch(`/admin/credits/packages/${packageId}`, updates);
+      await adminAPI.patch(`/credits/packages/${packageId}`, updates);
       toast.success('Package updated successfully');
       fetchCreditData();
     } catch (error) {
