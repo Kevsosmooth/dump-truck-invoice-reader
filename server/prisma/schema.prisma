@@ -217,20 +217,22 @@ model ModelConfiguration {
 }
 
 model FieldConfiguration {
-  id                String               @id @default(dbgenerated("(gen_random_uuid())::text"))
-  modelConfigId     String
-  fieldName         String               // Azure field name
-  displayName       String               // User-friendly display name
-  fieldType         FieldType            @default(TEXT)
-  isEnabled         Boolean              @default(true)
-  isRequired        Boolean              @default(false)
-  defaultValue      String?
-  defaultType       FieldDefaultType     @default(EMPTY)
-  fieldOrder        Int                  @default(0)
-  validation        Json?                // Optional validation rules
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @default(now()) @updatedAt
-  modelConfig       ModelConfiguration   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                   String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  modelConfigId        String
+  fieldName            String               // Azure field name
+  displayName          String               // User-friendly display name
+  fieldType            FieldType            @default(TEXT)
+  isEnabled            Boolean              @default(true)
+  isRequired           Boolean              @default(false)
+  defaultValue         String?
+  defaultType          FieldDefaultType     @default(EMPTY)
+  fieldOrder           Int                  @default(0)
+  validation           Json?                // Optional validation rules
+  transformationType   TransformationType   @default(NONE)
+  transformationConfig Json?                // Configuration for the transformation (e.g., date formats)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @default(now()) @updatedAt
+  modelConfig          ModelConfiguration   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   
   @@unique([modelConfigId, fieldName])
   @@index([modelConfigId])
@@ -271,6 +273,14 @@ enum FieldDefaultType {
   ORGANIZATION
   EMPTY
   CALCULATED
+}
+
+enum TransformationType {
+  NONE
+  DATE_PARSE
+  NUMBER_FORMAT
+  TEXT_REPLACE
+  CUSTOM
 }
 
 enum UserRole {

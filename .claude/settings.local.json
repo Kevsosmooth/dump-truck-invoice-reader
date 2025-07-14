@@ -61,7 +61,9 @@
       "mcp__render__update_environment_variables",
       "mcp__render__get_deploy",
       "Bash(git pull:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(jq:*)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": []
   },

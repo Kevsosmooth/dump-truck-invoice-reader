@@ -25,11 +25,11 @@ export default function ModelConfigModal({ model, isOpen, onClose }) {
     mutationFn: async (data) => {
       if (model?.isConfigured) {
         // Update existing configuration
-        const response = await api.patch(`/admin/models/${model.id}`, data);
+        const response = await adminAPI.patch(`/models/${model.id}`, data);
         return response.data;
       } else {
         // Configure new model
-        const response = await api.post(`/admin/models/${model.id || model.azureModelId}/configure`, data);
+        const response = await adminAPI.post(`/models/${model.id || model.azureModelId}/configure`, data);
         return response.data;
       }
     },
@@ -109,6 +109,9 @@ export default function ModelConfigModal({ model, isOpen, onClose }) {
                 {errors.customName}
               </p>
             )}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              This name will be displayed to users in the model selection dropdown
+            </p>
           </div>
 
           {/* Description */}
