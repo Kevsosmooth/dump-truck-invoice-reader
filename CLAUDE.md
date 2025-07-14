@@ -1,5 +1,69 @@
 # CLAUDE.md - Development Notes
 
+## Git Workflow and Database Synchronization (IMPORTANT)
+
+### Git Branching Strategy
+**MANDATORY**: All new features must follow this branching strategy to maintain code stability.
+
+1. **Branch Structure:**
+   - `main` - Production-ready code only. Direct commits forbidden except for hotfixes.
+   - `development` - Integration branch for features. All features merge here first.
+   - `feature/*` - Feature branches created from `development`
+   - `hotfix/*` - Emergency fixes created from `main`
+
+2. **Development Workflow:**
+   ```bash
+   # Start new feature
+   git checkout development
+   git pull origin development
+   git checkout -b feature/your-feature-name
+   
+   # Work on feature...
+   
+   # Merge to development
+   git checkout development
+   git merge feature/your-feature-name
+   
+   # After testing, merge to main
+   git checkout main
+   git merge development
+   ```
+
+3. **Rules:**
+   - NEVER commit directly to `main` (except hotfixes)
+   - ALWAYS create feature branches from `development`
+   - Test thoroughly on `development` before merging to `main`
+   - Delete feature branches after merging
+
+### Database Synchronization with Supabase
+
+**CRITICAL**: Database schema must stay synchronized between local PostgreSQL and Supabase.
+
+1. **Migration Workflow:**
+   ```bash
+   # 1. Create migration locally
+   npx prisma migrate dev --name your_migration_name
+   
+   # 2. Review generated SQL
+   cat prisma/migrations/[timestamp]_your_migration_name/migration.sql
+   
+   # 3. Apply to Supabase using MCP
+   # Use mcp__supabase__apply_migration tool in Claude Code
+   
+   # 4. Verify schema sync
+   # Use mcp__supabase__list_tables to confirm
+   ```
+
+2. **Before Merging to Main:**
+   - Ensure all migrations are applied to Supabase
+   - Test with Supabase connection string
+   - Document any manual migration steps
+
+3. **Supabase Connection:**
+   - Project URL: `https://tnbplzwfumvyqyedtrdf.supabase.co`
+   - Use Supabase MCP for all production database changes
+   - NEVER apply migrations manually through Supabase dashboard
+
 ## Supabase Migration Setup (2025-07-10) - Session 3
 
 ### Current Status

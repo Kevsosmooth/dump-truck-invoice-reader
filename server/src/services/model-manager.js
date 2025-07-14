@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import fieldTransformer from './field-transformer.js';
 
 dotenv.config();
 
@@ -445,13 +446,51 @@ class ModelManager {
             isRequired: field.isRequired,
             isEnabled: field.isEnabled !== false,
             fieldOrder: index,
-            validation: field.validation
+            validation: field.validation,
+            transformationType: field.transformationType || 'NONE',
+            transformationConfig: field.transformationConfig || null
           }
         })
       )
     );
     
     return fieldConfigs;
+  }
+
+  /**
+   * Apply field transformations to extracted data
+   * @param {object} extractedData - Raw data extracted from Azure
+   * @param {array} fieldConfigs - Field configurations with transformation settings
+   * @returns {object} - Transformed data
+   */
+  applyFieldTransformations(extractedData, fieldConfigs) {
+    const transformedData = { ...extractedData };
+    
+    fieldConfigs.forEach(config => {
+      if (!config.isEnabled || !extractedData[config.fieldName]) {
+        return;
+      }
+      
+      const rawValue = extractedData[config.fieldName];
+      const value = rawValue?.value || rawValue?.content || rawValue;
+      
+      // Apply transformation if configured
+      if (config.transformationType && config.transformationType !== 'NONE') {
+        try {
+          transformedData[config.fieldName] = {
+            ...rawValue,
+            value: fieldTransformer.transform(value, config.transformationType, config.transformationConfig),
+            originalValue: value,
+            transformed: true
+          };
+        } catch (error) {
+          console.error(`Error transforming field ${config.fieldName}:`, error);
+          // Keep original value on error
+        }
+      }
+    });
+    
+    return transformedData;
   }
 
   /**

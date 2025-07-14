@@ -39,6 +39,14 @@ const defaultValueTypes = [
   { value: 'CALCULATED', label: 'Calculated', icon: Hash }
 ];
 
+const transformationTypes = [
+  { value: 'NONE', label: 'No Transformation', description: 'Use value as-is from Azure' },
+  { value: 'DATE_PARSE', label: 'Date Parser', description: 'Convert text to formatted date' },
+  { value: 'NUMBER_FORMAT', label: 'Number Formatter', description: 'Format numbers with decimals, currency' },
+  { value: 'TEXT_REPLACE', label: 'Text Replace', description: 'Find and replace text patterns' },
+  { value: 'CUSTOM', label: 'Custom JavaScript', description: 'Apply custom transformation logic' }
+];
+
 const dateFormats = [
   { value: 'YYYY-MM-DD', label: '2024-03-15' },
   { value: 'MM/DD/YYYY', label: '03/15/2024' },
@@ -363,6 +371,140 @@ export default function FieldConfigModal({ isOpen, onClose, modelConfig, onUpdat
                               <span className="font-medium text-gray-700 dark:text-gray-300">
                                 {getDefaultValuePreview(field)}
                               </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Transformation Configuration */}
+                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <Label className="text-sm text-gray-700 dark:text-gray-300 mb-2 block">
+                            Value Transformation (when extraction succeeds)
+                          </Label>
+                          
+                          <Select
+                            value={field.transformationType || 'NONE'}
+                            onValueChange={(value) => handleFieldUpdate(index, { 
+                              transformationType: value,
+                              transformationConfig: {} 
+                            })}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {transformationTypes.map(type => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  <div>
+                                    <div className="font-medium">{type.label}</div>
+                                    <div className="text-xs text-gray-500">{type.description}</div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          {/* Date Parse Configuration */}
+                          {field.transformationType === 'DATE_PARSE' && (
+                            <div className="mt-3 space-y-3 pl-4">
+                              <div>
+                                <Label className="text-xs">Input Format</Label>
+                                <Input
+                                  value={field.transformationConfig?.inputFormat || 'auto'}
+                                  onChange={(e) => handleFieldUpdate(index, {
+                                    transformationConfig: {
+                                      ...field.transformationConfig,
+                                      inputFormat: e.target.value
+                                    }
+                                  })}
+                                  placeholder="auto (detects automatically)"
+                                  className="mt-1"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Use 'auto' to detect format, or specify like 'MMDDYY'
+                                </p>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Output Format</Label>
+                                <Select
+                                  value={field.transformationConfig?.outputFormat || 'yyyy-MM-dd'}
+                                  onValueChange={(value) => handleFieldUpdate(index, {
+                                    transformationConfig: {
+                                      ...field.transformationConfig,
+                                      outputFormat: value
+                                    }
+                                  })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {dateFormats.map(format => (
+                                      <SelectItem key={format.value} value={format.value}>
+                                        {format.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Number Format Configuration */}
+                          {field.transformationType === 'NUMBER_FORMAT' && (
+                            <div className="mt-3 space-y-3 pl-4">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <Label className="text-xs">Decimals</Label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max="10"
+                                    value={field.transformationConfig?.decimals || 2}
+                                    onChange={(e) => handleFieldUpdate(index, {
+                                      transformationConfig: {
+                                        ...field.transformationConfig,
+                                        decimals: parseInt(e.target.value)
+                                      }
+                                    })}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Prefix</Label>
+                                  <Input
+                                    value={field.transformationConfig?.prefix || ''}
+                                    onChange={(e) => handleFieldUpdate(index, {
+                                      transformationConfig: {
+                                        ...field.transformationConfig,
+                                        prefix: e.target.value
+                                      }
+                                    })}
+                                    placeholder="e.g., $"
+                                    className="mt-1"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Custom Transformation */}
+                          {field.transformationType === 'CUSTOM' && (
+                            <div className="mt-3 pl-4">
+                              <Label className="text-xs">JavaScript Expression</Label>
+                              <Input
+                                value={field.transformationConfig?.expression || ''}
+                                onChange={(e) => handleFieldUpdate(index, {
+                                  transformationConfig: {
+                                    ...field.transformationConfig,
+                                    expression: e.target.value
+                                  }
+                                })}
+                                placeholder="e.g., value.toUpperCase()"
+                                className="mt-1 font-mono text-sm"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                Available: value, Date, Math, String, Number
+                              </p>
                             </div>
                           )}
                         </div>
