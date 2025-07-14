@@ -59,7 +59,9 @@
       "mcp__render__get_service",
       "mcp__render__list_deploys",
       "mcp__render__update_environment_variables",
-      "mcp__render__get_deploy"
+      "mcp__render__get_deploy",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)"
     ],
     "deny": []
   },
