@@ -79,3 +79,6 @@ export const requireAdmin = (req, res, next) => {
   }
   next();
 };
+
+// Alias for consistency with payment routes
+export const requireAuth = authenticateToken;

@@ -665,4 +665,121 @@ router.get('/users/search', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Update file naming configuration
+router.put('/:configId/naming-config', authenticateAdmin, async (req, res) => {
+  try {
+    const { configId } = req.params;
+    const { template, fields, elements } = req.body;
+    
+    // Validate model config exists
+    const modelConfig = await prisma.modelConfiguration.findUnique({
+      where: { id: configId }
+    });
+    
+    if (!modelConfig) {
+      return res.status(404).json({ error: 'Model configuration not found' });
+    }
+    
+    // Prepare update data
+    const updateData = {};
+    
+    // Handle new element-based format
+    if (elements) {
+      updateData.fileNamingElements = elements;
+      // Clear old format fields when using new format
+      updateData.fileNamingTemplate = null;
+      updateData.fileNamingFields = null;
+    } 
+    // Handle old template format (for backward compatibility)
+    else if (template && fields) {
+      updateData.fileNamingTemplate = template;
+      updateData.fileNamingFields = fields;
+      // Clear new format when using old format
+      updateData.fileNamingElements = null;
+    }
+    
+    // Update file naming configuration
+    const updated = await prisma.modelConfiguration.update({
+      where: { id: configId },
+      data: updateData
+    });
+    
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_FILE_NAMING_UPDATED',
+        eventData: {
+          configId,
+          format: elements ? 'elements' : 'template',
+          template,
+          fields,
+          elements
+        },
+      },
+    });
+    
+    res.json({
+      success: true,
+      config: updated
+    });
+  } catch (error) {
+    console.error('Error updating file naming config:', error);
+    res.status(500).json({ 
+      error: 'Failed to update file naming configuration',
+      details: error.message 
+    });
+  }
+});
+
+// Update Excel export configuration
+router.put('/:configId/excel-config', authenticateAdmin, async (req, res) => {
+  try {
+    const { configId } = req.params;
+    const { columnOrder, columnConfig } = req.body;
+    
+    // Validate model config exists
+    const modelConfig = await prisma.modelConfiguration.findUnique({
+      where: { id: configId }
+    });
+    
+    if (!modelConfig) {
+      return res.status(404).json({ error: 'Model configuration not found' });
+    }
+    
+    // Update Excel configuration
+    const updated = await prisma.modelConfiguration.update({
+      where: { id: configId },
+      data: {
+        excelColumnOrder: columnOrder,
+        excelColumnConfig: columnConfig
+      }
+    });
+    
+    // Log the action
+    await prisma.auditLog.create({
+      data: {
+        userId: req.admin.id,
+        eventType: 'MODEL_EXCEL_CONFIG_UPDATED',
+        eventData: {
+          configId,
+          columnCount: columnOrder?.length || 0,
+          configuredColumns: Object.keys(columnConfig?.columns || {}).length
+        },
+      },
+    });
+    
+    res.json({
+      success: true,
+      config: updated
+    });
+  } catch (error) {
+    console.error('Error updating Excel config:', error);
+    res.status(500).json({ 
+      error: 'Failed to update Excel configuration',
+      details: error.message 
+    });
+  }
+});
+
 export default router;

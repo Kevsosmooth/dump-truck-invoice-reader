@@ -9,29 +9,30 @@ datasource db {
 }
 
 model User {
-  id                 Int                 @id @default(autoincrement())
-  email              String              @unique
-  password           String?
-  googleId           String?             @unique
-  azureId            String?             @unique
-  firstName          String?
-  lastName           String?
-  profilePicture     String?
-  role               UserRole            @default(USER)
-  isActive           Boolean             @default(true)
-  credits            Int                 @default(0)
-  lastLoginAt        DateTime?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
-  auditLogs          AuditLog[]
-  jobs               Job[]
-  organization       Organization?
-  processingSessions ProcessingSession[]
-  sessions           Session[]
-  transactions       Transaction[]
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
+  password            String?
+  googleId            String?              @unique
+  azureId             String?              @unique
+  firstName           String?
+  lastName            String?
+  profilePicture      String?
+  role                UserRole             @default(USER)
+  isActive            Boolean              @default(true)
+  credits             Int                  @default(0)
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @default(now()) @updatedAt
+  organizationId      Int?
+  auditLogs           AuditLog[]
+  jobs                Job[]
+  modelAccess         ModelAccess[]
   modelConfigurations ModelConfiguration[]
-  modelAccess        ModelAccess[]
-  grantedAccess      ModelAccess[]       @relation("GrantedBy")
+  organization        Organization?
+  PaymentMethod       PaymentMethod[]
+  processingSessions  ProcessingSession[]
+  sessions            Session[]
+  transactions        Transaction[]
 }
 
 model Session {
@@ -40,7 +41,7 @@ model Session {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -53,11 +54,11 @@ model Organization {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @default(now()) @updatedAt
   customModels CustomModel[]
-  user         User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user         User          @relation(fields: [userId], references: [id])
 }
 
 model CustomModel {
-  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id             String       @id
   organizationId Int
   name           String
   azureModelId   String
@@ -65,47 +66,47 @@ model CustomModel {
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @default(now()) @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organization   Organization @relation(fields: [organizationId], references: [id])
 }
 
 model Job {
-  id               String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id               String              @id @default(dbgenerated("(gen_random_uuid())::text"))
   userId           Int
-  sessionId        String?
-  status           JobStatus          @default(QUEUED)
+  status           JobStatus           @default(QUEUED)
   fileName         String
   originalFileUrl  String?
   processedFileUrl String?
   resultFileUrl    String?
   fileSize         Int
-  pageCount        Int                @default(0)
-  pagesProcessed   Int                @default(0)
-  creditsUsed      Int                @default(0)
-  modelId          String?            // Azure model ID
-  modelConfigId    String?            // Model configuration ID for defaults
+  pageCount        Int                 @default(0)
+  pagesProcessed   Int                 @default(0)
+  creditsUsed      Int                 @default(0)
+  modelId          String?
   error            String?
   metadata         Json?
   queueJobId       String?
-  operationId      String?
-  operationStatus  String?
-  splitPageNumber  Int?
-  parentJobId      String?
-  extractedFields  Json?
-  newFileName      String?
-  pollingStartedAt DateTime?
-  lastPolledAt     DateTime?
-  blobUrl          String?
-  sasUrl           String?
-  sasExpiresAt     DateTime?
-  createdAt        DateTime           @default(now())
+  createdAt        DateTime            @default(now())
   completedAt      DateTime?
   expiresAt        DateTime?
+  blobUrl          String?
+  extractedFields  Json?
+  lastPolledAt     DateTime?
+  newFileName      String?
+  operationId      String?
+  operationStatus  String?
+  parentJobId      String?
+  pollingStartedAt DateTime?
+  sasExpiresAt     DateTime?
+  sasUrl           String?
+  sessionId        String?
+  splitPageNumber  Int?
+  modelConfigId    String?
   fileAccessLogs   FileAccessLog[]
-  parentJob        Job?               @relation("ParentChild", fields: [parentJobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  childJobs        Job[]              @relation("ParentChild")
-  session          ProcessingSession? @relation(fields: [sessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user             User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  modelConfig      ModelConfiguration? @relation(fields: [modelConfigId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  modelConfig      ModelConfiguration? @relation(fields: [modelConfigId], references: [id])
+  parentJob        Job?                @relation("ParentChild", fields: [parentJobId], references: [id])
+  childJobs        Job[]               @relation("ParentChild")
+  session          ProcessingSession?  @relation(fields: [sessionId], references: [id])
+  user             User                @relation(fields: [userId], references: [id])
 
   @@index([sessionId])
   @@index([operationId])
@@ -114,24 +115,24 @@ model Job {
 }
 
 model ProcessingSession {
-  id             String        @id @default(dbgenerated("(gen_random_uuid())::text"))
-  userId         Int
-  totalFiles     Int           @default(0)
-  totalPages     Int           @default(0)
-  processedPages Int           @default(0)
-  status         SessionStatus @default(UPLOADING)
-  blobPrefix     String
-  modelId        String?
-  zipUrl         String?
-  excelUrl       String?
-  postProcessingStatus String?
-  postProcessingStartedAt DateTime?
+  id                        String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                    Int
+  totalFiles                Int           @default(0)
+  totalPages                Int           @default(0)
+  processedPages            Int           @default(0)
+  status                    SessionStatus @default(UPLOADING)
+  blobPrefix                String
+  modelId                   String?
+  zipUrl                    String?
+  excelUrl                  String?
+  createdAt                 DateTime      @default(now())
+  expiresAt                 DateTime
+  postProcessingStatus      String?
+  postProcessingStartedAt   DateTime?
   postProcessingCompletedAt DateTime?
-  postProcessedCount Int     @default(0)
-  createdAt      DateTime      @default(now())
-  expiresAt      DateTime
-  jobs           Job[]
-  user           User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  postProcessedCount        Int           @default(0)
+  jobs                      Job[]
+  user                      User          @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([status])
@@ -145,11 +146,22 @@ model Transaction {
   amount                Int
   credits               Int
   stripePaymentIntentId String?           @unique
+  stripeInvoiceId       String?           @unique
+  packageId             String?
+  paymentMethodId       String?
+  ipAddress             String?
+  userAgent             String?
   status                TransactionStatus @default(PENDING)
   description           String?
   metadata              Json?
   createdAt             DateTime          @default(now())
-  user                  User              @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  CreditPackage         CreditPackage?    @relation(fields: [packageId], references: [id], onUpdate: NoAction)
+  PaymentMethod         PaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onUpdate: NoAction)
+  user                  User              @relation(fields: [userId], references: [id])
+
+  @@index([ipAddress])
+  @@index([packageId])
+  @@index([paymentMethodId])
 }
 
 model AuditLog {
@@ -161,7 +173,7 @@ model AuditLog {
   userAgent          String?
   azureCorrelationId String?
   createdAt          DateTime @default(now())
-  user               User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user               User?    @relation(fields: [userId], references: [id])
 
   @@index([eventType])
   @@index([userId])
@@ -176,7 +188,7 @@ model FileAccessLog {
   userAgent      String?
   sasTokenExpiry DateTime?
   createdAt      DateTime       @default(now())
-  job            Job            @relation(fields: [jobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  job            Job            @relation(fields: [jobId], references: [id])
 
   @@index([jobId])
 }
@@ -198,64 +210,105 @@ model CleanupLog {
 }
 
 model ModelConfiguration {
-  id               String               @id @default(dbgenerated("(gen_random_uuid())::text"))
-  azureModelId     String               @unique
-  displayName      String
-  description      String?
-  isActive         Boolean              @default(true)
-  createdBy        Int
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @default(now()) @updatedAt
-  creator          User                 @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  fieldConfigs     FieldConfiguration[]
-  modelAccess      ModelAccess[]
-  jobs             Job[]
-  
+  id                 String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  azureModelId       String
+  displayName        String
+  description        String?
+  isActive           Boolean              @default(true)
+  isPublic           Boolean              @default(false)
+  createdBy          Int
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @default(now()) @updatedAt
+  fileNamingTemplate String?              @default("{company}_{ticket}_{date}")
+  fileNamingFields   Json?
+  excelColumnOrder   Json?
+  excelColumnConfig  Json?
+  fileNamingElements Json?
+  fieldConfigs       FieldConfiguration[]
+  jobs               Job[]
+  modelAccess        ModelAccess[]
+  creator            User                 @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([azureModelId, createdBy])
   @@index([azureModelId])
   @@index([createdBy])
-  @@index([isActive])
+  @@index([isPublic])
 }
 
 model FieldConfiguration {
-  id                   String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id                   String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   modelConfigId        String
-  fieldName            String               // Azure field name
-  displayName          String               // User-friendly display name
-  fieldType            FieldType            @default(TEXT)
-  isEnabled            Boolean              @default(true)
-  isRequired           Boolean              @default(false)
+  fieldName            String
+  displayName          String
+  fieldType            FieldType          @default(TEXT)
+  isEnabled            Boolean            @default(true)
+  isRequired           Boolean            @default(false)
   defaultValue         String?
-  defaultType          FieldDefaultType     @default(EMPTY)
-  fieldOrder           Int                  @default(0)
-  validation           Json?                // Optional validation rules
-  transformationType   TransformationType   @default(NONE)
-  transformationConfig Json?                // Configuration for the transformation (e.g., date formats)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @default(now()) @updatedAt
-  modelConfig          ModelConfiguration   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  
-  @@unique([modelConfigId, fieldName])
+  defaultType          FieldDefaultType   @default(EMPTY)
+  fieldOrder           Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now()) @updatedAt
+  validation           Json?
+  transformationType   TransformationType @default(NONE)
+  transformationConfig Json?
+  modelConfig          ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([modelConfigId, fieldName], map: "FieldConfiguration_modelConfigId_azureFieldName_key")
   @@index([modelConfigId])
 }
 
 model ModelAccess {
-  id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
-  modelConfigId   String
-  userId          Int
-  customName      String?            // User-specific display name override
-  isActive        Boolean            @default(true)
-  grantedAt       DateTime           @default(now())
-  grantedBy       Int?               // Admin who granted access
-  expiresAt       DateTime?          // Optional expiration date
-  modelConfig     ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  grantedByUser   User?              @relation("GrantedBy", fields: [grantedBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  
+  id            String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  modelConfigId String
+  userId        Int
+  grantedBy     Int?
+  grantedAt     DateTime           @default(now())
+  expiresAt     DateTime?
+  isActive      Boolean            @default(true)
+  customName    String?
+  modelConfig   ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
   @@unique([modelConfigId, userId])
   @@index([modelConfigId])
   @@index([userId])
-  @@index([isActive])
   @@index([expiresAt])
+}
+
+model CreditPackage {
+  id              String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  stripeProductId String?       @unique
+  stripePriceId   String?       @unique
+  name            String
+  description     String?
+  credits         Int
+  price           Int
+  isActive        Boolean       @default(true)
+  displayOrder    Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now())
+  Transaction     Transaction[]
+
+  @@index([displayOrder])
+  @@index([isActive])
+}
+
+model PaymentMethod {
+  id                    String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                Int
+  stripePaymentMethodId String        @unique
+  type                  String
+  last4                 String
+  brand                 String?
+  expiryMonth           Int?
+  expiryYear            Int?
+  isDefault             Boolean       @default(false)
+  createdAt             DateTime      @default(now())
+  User                  User          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Transaction           Transaction[]
+
+  @@index([isDefault])
+  @@index([userId])
 }
 
 enum FieldType {
@@ -272,7 +325,6 @@ enum FieldDefaultType {
   CURRENT_USER
   ORGANIZATION
   EMPTY
-  CALCULATED
 }
 
 enum TransformationType {
@@ -290,12 +342,12 @@ enum UserRole {
 
 enum JobStatus {
   QUEUED
-  UPLOADING
   PROCESSING
-  POLLING
   COMPLETED
   FAILED
   EXPIRED
+  UPLOADING
+  POLLING
   CANCELLED
 }
 
@@ -303,11 +355,11 @@ enum SessionStatus {
   ACTIVE
   UPLOADING
   PROCESSING
-  POST_PROCESSING
   COMPLETED
   FAILED
   EXPIRED
   CANCELLED
+  POST_PROCESSING
 }
 
 enum TransactionType {
@@ -317,7 +369,6 @@ enum TransactionType {
   ADMIN_CREDIT
   ADMIN_DEBIT
   BONUS
-  MANUAL_ADJUSTMENT
 }
 
 enum TransactionStatus {

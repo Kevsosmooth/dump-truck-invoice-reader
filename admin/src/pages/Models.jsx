@@ -20,7 +20,9 @@ import {
   Globe,
   Lock,
   Zap,
-  AlertCircle
+  AlertCircle,
+  FileType,
+  Table
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -41,6 +43,8 @@ import ModelConfigModal from '@/components/models/ModelConfigModal';
 import ModelStatsModal from '@/components/models/ModelStatsModal';
 import ModelAccessModal from '@/components/models/ModelAccessModal';
 import FieldConfigModal from '@/components/models/FieldConfigModal';
+import FileNamingConfigModal from '@/components/models/FileNamingConfigModal';
+import ExcelColumnOrderModal from '@/components/models/ExcelColumnOrderModal';
 
 export default function Models() {
   const [search, setSearch] = useState('');
@@ -51,6 +55,8 @@ export default function Models() {
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [showFieldsModal, setShowFieldsModal] = useState(false);
+  const [showFileNamingModal, setShowFileNamingModal] = useState(false);
+  const [showExcelConfigModal, setShowExcelConfigModal] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch models
@@ -257,13 +263,29 @@ export default function Models() {
                           Configure
                         </DropdownMenuItem>
                         {model.id && (
-                          <DropdownMenuItem onClick={() => {
-                            setSelectedModel(model);
-                            setShowFieldsModal(true);
-                          }}>
-                            <FileText className="mr-2 h-4 w-4" />
-                            Configure Field Defaults
-                          </DropdownMenuItem>
+                          <>
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedModel(model);
+                              setShowFieldsModal(true);
+                            }}>
+                              <FileText className="mr-2 h-4 w-4" />
+                              Configure Field Defaults
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedModel(model);
+                              setShowFileNamingModal(true);
+                            }}>
+                              <FileType className="mr-2 h-4 w-4" />
+                              Configure File Naming
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedModel(model);
+                              setShowExcelConfigModal(true);
+                            }}>
+                              <Table className="mr-2 h-4 w-4" />
+                              Configure Excel Export
+                            </DropdownMenuItem>
+                          </>
                         )}
                         <DropdownMenuItem onClick={() => {
                           setSelectedModel(model);
@@ -488,6 +510,40 @@ export default function Models() {
           }}
           onUpdate={(updatedModel) => {
             queryClient.invalidateQueries(['adminModels']);
+          }}
+        />
+      )}
+
+      {/* File Naming Configuration Modal */}
+      {selectedModel && (
+        <FileNamingConfigModal
+          model={selectedModel}
+          isOpen={showFileNamingModal}
+          onClose={() => {
+            setShowFileNamingModal(false);
+            setSelectedModel(null);
+          }}
+          onSave={(updatedFields) => {
+            queryClient.invalidateQueries(['adminModels']);
+            setShowFileNamingModal(false);
+            setSelectedModel(null);
+          }}
+        />
+      )}
+
+      {/* Excel Column Order Modal */}
+      {selectedModel && (
+        <ExcelColumnOrderModal
+          model={selectedModel}
+          isOpen={showExcelConfigModal}
+          onClose={() => {
+            setShowExcelConfigModal(false);
+            setSelectedModel(null);
+          }}
+          onSave={(updatedFields) => {
+            queryClient.invalidateQueries(['adminModels']);
+            setShowExcelConfigModal(false);
+            setSelectedModel(null);
           }}
         />
       )}

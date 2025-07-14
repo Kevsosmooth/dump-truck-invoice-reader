@@ -31,9 +31,20 @@ async function generateZipForSession(sessionId) {
 
     // Get all jobs for the session
     const jobs = await prisma.job.findMany({
-      where: { sessionId },
+      where: { 
+        sessionId,
+        status: 'COMPLETED',
+        parentJobId: { not: null } // Get only child jobs that have processed data
+      },
       include: {
-        fields: true
+        modelConfig: {
+          select: {
+            fileNamingTemplate: true,
+            fileNamingFields: true,
+            excelColumnOrder: true,
+            excelColumnConfig: true
+          }
+        }
       }
     });
 
@@ -51,25 +62,46 @@ async function generateZipForSession(sessionId) {
 
     // Process each job
     for (const job of jobs) {
-      if (job.status === 'completed' && job.pdfUrl) {
-        try {
-          // Download PDF from blob storage
-          const pdfBuffer = await downloadPdfFromBlob(job.pdfUrl);
-          
-          // Get renamed filename
-          const originalName = path.basename(job.pdfUrl);
-          const renamedFileName = renameFileBasedOnFields(originalName, job.fields, fileNameTracker);
-          
-          // Add PDF to archive
-          archive.append(pdfBuffer, { name: `pdfs/${renamedFileName}` });
-        } catch (error) {
-          console.error(`Error processing PDF for job ${job.id}:`, error);
+      try {
+        let pdfBuffer;
+        let fileName;
+        
+        // Prefer processed file if available
+        if (job.processedFileUrl) {
+          pdfBuffer = await downloadPdfFromBlob(job.processedFileUrl);
+          fileName = job.newFileName || path.basename(job.processedFileUrl);
+        } else if (job.blobUrl) {
+          // Fall back to original file
+          pdfBuffer = await downloadPdfFromBlob(job.blobUrl);
+          fileName = job.fileName || path.basename(job.blobUrl);
+        } else {
+          console.warn(`Job ${job.id} has no PDF URL`);
+          continue;
         }
+        
+        // Handle duplicates
+        if (fileNameTracker[fileName]) {
+          const baseName = path.basename(fileName, path.extname(fileName));
+          const ext = path.extname(fileName);
+          let counter = 1;
+          do {
+            fileName = `${baseName}_${counter}${ext}`;
+            counter++;
+          } while (fileNameTracker[fileName]);
+        }
+        fileNameTracker[fileName] = true;
+        
+        // Add PDF to archive
+        archive.append(pdfBuffer, { name: `pdfs/${fileName}` });
+      } catch (error) {
+        console.error(`Error processing PDF for job ${job.id}:`, error);
       }
     }
 
     // Generate Excel report
-    const excelBuffer = await generateExcelReport(jobs);
+    // Get model config from first job that has one (they should all use the same model)
+    const modelConfig = jobs.find(job => job.modelConfig)?.modelConfig;
+    const excelBuffer = await generateExcelReport(jobs, modelConfig);
     archive.append(excelBuffer, { name: 'extraction_report.xlsx' });
 
     // Finalize archive
@@ -106,74 +138,6 @@ async function downloadPdfFromBlob(pdfUrl) {
   }
 }
 
-/**
- * Rename file based on extracted fields
- * @param {string} originalName - Original filename
- * @param {Array} fields - Extracted fields
- * @param {Object} fileNameTracker - Object to track used filenames
- * @returns {string} - Renamed filename
- */
-function renameFileBasedOnFields(originalName, fields, fileNameTracker) {
-  try {
-    // Find relevant fields
-    const companyField = fields.find(f => 
-      f.fieldName.toLowerCase().includes('company') || 
-      f.fieldName.toLowerCase().includes('vendor')
-    );
-    const ticketField = fields.find(f => 
-      f.fieldName.toLowerCase().includes('ticket') || 
-      f.fieldName.toLowerCase().includes('number')
-    );
-    const dateField = fields.find(f => 
-      f.fieldName.toLowerCase().includes('date')
-    );
-
-    // Build filename parts
-    const parts = [];
-    
-    if (companyField && companyField.extractedValue) {
-      parts.push(sanitizeFileName(companyField.extractedValue));
-    }
-    
-    if (ticketField && ticketField.extractedValue) {
-      parts.push(sanitizeFileName(ticketField.extractedValue));
-    }
-    
-    if (dateField && dateField.extractedValue) {
-      // Format date as YYYY-MM-DD
-      const date = new Date(dateField.extractedValue);
-      if (!isNaN(date.getTime())) {
-        parts.push(date.toISOString().split('T')[0]);
-      }
-    }
-
-    // If no parts, use original name
-    if (parts.length === 0) {
-      parts.push(path.basename(originalName, path.extname(originalName)));
-    }
-
-    // Create base filename
-    let baseFileName = parts.join('_');
-    let fileName = `${baseFileName}.pdf`;
-
-    // Handle duplicates
-    if (fileNameTracker[fileName]) {
-      let counter = 1;
-      do {
-        fileName = `${baseFileName}_${counter}.pdf`;
-        counter++;
-      } while (fileNameTracker[fileName]);
-    }
-
-    fileNameTracker[fileName] = true;
-    return fileName;
-  } catch (error) {
-    console.error('Error renaming file:', error);
-    // Fallback to original name with timestamp
-    const timestamp = Date.now();
-    return `document_${timestamp}.pdf`;
-  }
-}
 
 /**
  * Sanitize filename by removing invalid characters
@@ -191,41 +155,102 @@ function sanitizeFileName(str) {
 /**
  * Generate Excel report with all extracted data
  * @param {Array} jobs - Array of jobs with fields
+ * @param {Object} modelConfig - Model configuration with Excel settings
  * @returns {Promise<Buffer>} - Excel file buffer
  */
-async function generateExcelReport(jobs) {
+async function generateExcelReport(jobs, modelConfig) {
   try {
     // Prepare data for Excel
     const data = [];
     
-    // Get all unique field names
+    // Get all unique field names from extractedFields
     const allFieldNames = new Set();
     jobs.forEach(job => {
-      if (job.fields) {
-        job.fields.forEach(field => {
-          allFieldNames.add(field.fieldName);
+      if (job.extractedFields && typeof job.extractedFields === 'object') {
+        Object.keys(job.extractedFields).forEach(fieldName => {
+          allFieldNames.add(fieldName);
         });
       }
     });
 
-    // Sort field names for consistent column order
-    const fieldNames = Array.from(allFieldNames).sort();
+    // Determine field order
+    let fieldNames;
+    if (modelConfig?.excelColumnOrder && Array.isArray(modelConfig.excelColumnOrder)) {
+      // Use model-specific column order
+      fieldNames = modelConfig.excelColumnOrder.filter(fieldName => 
+        allFieldNames.has(fieldName)
+      );
+      
+      // Add any missing fields at the end
+      const missingFields = Array.from(allFieldNames)
+        .filter(fieldName => !fieldNames.includes(fieldName))
+        .sort();
+      
+      fieldNames = [...fieldNames, ...missingFields];
+    } else {
+      // Default: sort field names alphabetically
+      fieldNames = Array.from(allFieldNames).sort();
+    }
 
-    // Create header row
-    const headers = ['File Name', 'Status', 'Processing Date', ...fieldNames];
+    // Filter out hidden columns if configured
+    const columnConfig = modelConfig?.excelColumnConfig?.columns || {};
+    const visibleFieldNames = fieldNames.filter(fieldName => {
+      const config = columnConfig[fieldName];
+      return config?.visible !== false;
+    });
+
+    // Create header row with display names
+    const headers = ['File Name', 'Status', 'Processing Date'];
+    const fieldHeaders = visibleFieldNames.map(fieldName => {
+      const config = columnConfig[fieldName];
+      return config?.displayName || fieldName;
+    });
+    headers.push(...fieldHeaders);
 
     // Create data rows
     for (const job of jobs) {
       const row = {
-        'File Name': job.fileName || 'Unknown',
+        'File Name': job.newFileName || job.fileName || 'Unknown',
         'Status': job.status,
         'Processing Date': job.createdAt.toISOString()
       };
 
-      // Add field values
-      fieldNames.forEach(fieldName => {
-        const field = job.fields?.find(f => f.fieldName === fieldName);
-        row[fieldName] = field ? field.extractedValue : '';
+      // Add field values with display names as keys
+      visibleFieldNames.forEach((fieldName, index) => {
+        const displayName = fieldHeaders[index];
+        let value = '';
+        
+        if (job.extractedFields && job.extractedFields[fieldName]) {
+          const field = job.extractedFields[fieldName];
+          // Extract value from various field structures
+          if (typeof field === 'string' || typeof field === 'number') {
+            value = field;
+          } else if (field && typeof field === 'object') {
+            value = field.value || field.content || field.text || field.valueString || '';
+          }
+        }
+        
+        // Apply date formatting if configured
+        const config = columnConfig[fieldName];
+        if (config?.format && value && fieldName.toLowerCase().includes('date')) {
+          try {
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              // Simple date formatting based on config
+              if (config.format === 'MM/DD/YYYY') {
+                value = `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}/${date.getFullYear()}`;
+              } else if (config.format === 'DD/MM/YYYY') {
+                value = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+              } else if (config.format === 'YYYY-MM-DD') {
+                value = date.toISOString().split('T')[0];
+              }
+            }
+          } catch (e) {
+            // Keep original value if date parsing fails
+          }
+        }
+        
+        row[displayName] = value;
       });
 
       data.push(row);
@@ -344,6 +369,5 @@ async function generateSasUrl(blobName) {
 
 export {
   generateZipForSession,
-  renameFileBasedOnFields,
   generateExcelReport
 };

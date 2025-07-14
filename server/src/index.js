@@ -71,10 +71,13 @@ app.use(session({
   }
 }));
 
-// Apply JSON parser to all routes except multipart uploads
+// Apply raw body parser for Stripe webhook before JSON parser
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
+// Apply JSON parser to all routes except multipart uploads and webhook
 app.use((req, res, next) => {
-  // Skip JSON parsing for multipart/form-data routes
-  if (req.is('multipart/form-data')) {
+  // Skip JSON parsing for multipart/form-data routes and webhook
+  if (req.is('multipart/form-data') || req.path === '/api/payments/webhook') {
     next();
   } else {
     express.json({ limit: '500mb' })(req, res, next);
@@ -159,6 +162,8 @@ import sessionRoutes from './routes/sessions.js';
 import devRoutes from './routes/dev.js';
 import tierInfoRoutes from './routes/tier-info.js';
 import metricsRoutes from './routes/metrics.js';
+import paymentRoutes from './routes/payments.js';
+import transactionRoutes from './routes/transactions.js';
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/user', userRoutes);
@@ -176,6 +181,8 @@ app.use('/api/model-training', modelTrainingRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Development routes (only in dev mode)
 if (process.env.NODE_ENV !== 'production') {

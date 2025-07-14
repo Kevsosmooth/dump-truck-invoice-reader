@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileRenameBuilder } from '@/components/FileRenameBuilder';
+import { PurchaseCreditsModal } from '@/components/PurchaseCreditsModal';
 // import { ModelTrainingPage } from '@/pages/ModelTraining';
 // import { OngoingTraining } from '@/components/ModelTraining/OngoingTraining';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -31,7 +33,9 @@ import {
   FileWarning,
   LogOut,
   FastForward,
-  RefreshCw
+  RefreshCw,
+  Receipt,
+  Home
 } from 'lucide-react';
 
 // Helper function to format time ago
@@ -86,6 +90,8 @@ const isExpiringSoon = (expiresAt) => {
 
 function App() {
   const { user, logout, token, updateCredits } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState([]);
   // const [showModelTraining, setShowModelTraining] = useState(false);
@@ -102,6 +108,9 @@ function App() {
   const [sessionProgress, setSessionProgress] = useState({ current: 0, total: 0, status: 'idle' });
   const [postProcessingStatus, setPostProcessingStatus] = useState(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  
+  // Purchase Credits modal
+  const [showPurchaseCredits, setShowPurchaseCredits] = useState(false);
   
   // Pagination and filtering states - moved here before fetchUserSessions
   const [allUserSessions, setAllUserSessions] = useState([]); // Store all sessions
@@ -1081,6 +1090,29 @@ function App() {
                 <p className="text-xs text-gray-500 dark:text-gray-400 hidden tablet:block">Automated Document Processing</p>
               </div>
             </div>
+            
+            {/* Navigation */}
+            <nav className="flex items-center gap-1 tablet:gap-2 mx-4">
+              <Button
+                variant={location.pathname === '/' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => navigate('/')}
+                className="flex items-center gap-1 tablet:gap-2 px-2 tablet:px-3 h-8 tablet:h-9"
+              >
+                <Home className="h-4 w-4" />
+                <span className="hidden tablet:inline">Dashboard</span>
+              </Button>
+              <Button
+                variant={location.pathname === '/history' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => navigate('/history')}
+                className="flex items-center gap-1 tablet:gap-2 px-2 tablet:px-3 h-8 tablet:h-9"
+              >
+                <Receipt className="h-4 w-4" />
+                <span className="hidden tablet:inline">History</span>
+              </Button>
+            </nav>
+            
             <div className="flex items-center gap-2 tablet:gap-3 desktop:gap-4 flex-shrink-0">
               <div className="flex items-center gap-1 tablet:gap-2 px-3 tablet:px-4 py-1.5 tablet:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full border border-emerald-200 dark:border-emerald-800 transition-all duration-300">
                 <Zap className="h-3.5 w-3.5 tablet:h-4 tablet:w-4 text-emerald-600 dark:text-emerald-400" />
@@ -1974,8 +2006,15 @@ function App() {
                       </div>
                     </div>
                   )}
-                  <Button className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold">
-                    Upgrade to Pro
+                  <Button 
+                    className="w-full bg-white text-emerald-700 hover:bg-emerald-50 font-semibold"
+                    onClick={() => {
+                      console.log('Purchase Credits clicked');
+                      setShowPurchaseCredits(true);
+                    }}
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Purchase Credits
                   </Button>
                   <div className="mt-4 pt-4 border-t border-emerald-400">
                     <div className="flex justify-between text-sm">
@@ -2041,6 +2080,18 @@ function App() {
           animation-delay: 4s;
         }
       `}</style>
+
+      {/* Purchase Credits Modal */}
+      {showPurchaseCredits && (
+        <PurchaseCreditsModal
+          isOpen={showPurchaseCredits}
+          onClose={() => setShowPurchaseCredits(false)}
+          onSuccess={() => {
+            setShowPurchaseCredits(false);
+            // Refresh user data is handled by the CheckoutSuccess page
+          }}
+        />
+      )}
     </div>
   );
 }

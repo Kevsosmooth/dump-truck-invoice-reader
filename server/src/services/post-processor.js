@@ -1,6 +1,7 @@
 import { uploadToBlob, downloadBlob, extractBlobPath } from './azure-storage.js';
 import { PrismaClient } from '@prisma/client';
 import modelManager from './model-manager.js';
+import fileNamingService from './file-naming-service.js';
 
 const prisma = new PrismaClient();
 
@@ -69,98 +70,146 @@ export async function postProcessJob(jobId) {
       }
     }
     
-    // Try to find company name, ticket number, and date using intelligent field detection
-    let companyName = '';
-    let ticketNumber = '';
-    let date = '';
-
-    // Helper functions to detect field types by name patterns
-    const isCompanyField = (fieldName) => {
-      const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
-      return normalized.includes('company') || 
-             normalized.includes('customer') || 
-             normalized.includes('client') ||
-             normalized.includes('vendor') ||
-             normalized.includes('supplier');
-    };
-
-    const isTicketField = (fieldName) => {
-      const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
-      return normalized.includes('ticket') || 
-             normalized.includes('invoice') && normalized.includes('number') ||
-             normalized.includes('reference') ||
-             normalized.includes('order') && normalized.includes('number');
-    };
-
-    const isDateField = (fieldName) => {
-      const normalized = fieldName.toLowerCase();
-      return normalized.includes('date') || 
-             normalized.includes('time') && normalized.includes('stamp');
-    };
-
-    // Extract values based on field name patterns
-    for (const [fieldName, fieldValue] of Object.entries(fields)) {
-      const value = extractFieldValue(fieldValue);
+    // Generate filename based on model configuration or fall back to intelligent detection
+    let newFileName;
+    
+    // Check if we have model-specific file naming configuration
+    if (job.modelConfigId) {
+      const modelConfig = await prisma.modelConfiguration.findUnique({
+        where: { id: job.modelConfigId },
+        select: {
+          fileNamingTemplate: true,
+          fileNamingFields: true,
+          fileNamingElements: true  // New element-based format
+        }
+      });
       
-      if (!value) continue;
-
-      // Company name
-      if (!companyName && isCompanyField(fieldName)) {
-        console.log(`Found company field '${fieldName}': ${value}`);
-        companyName = value;
+      // Try new element-based format first
+      if (modelConfig?.fileNamingElements && Array.isArray(modelConfig.fileNamingElements)) {
+        console.log(`[RENAME] Using model-specific element-based naming`);
+        const baseName = fileNamingService.generateFileNameFromElements(
+          modelConfig.fileNamingElements,
+          fields
+        );
+        
+        if (baseName) {
+          newFileName = `${baseName}.pdf`;
+          console.log(`[RENAME] Generated filename from elements: ${newFileName}`);
+        }
       }
-
-      // Ticket/Invoice number
-      if (!ticketNumber && isTicketField(fieldName)) {
-        console.log(`Found ticket field '${fieldName}': ${value}`);
-        ticketNumber = value;
-      }
-
-      // Date
-      if (!date && isDateField(fieldName)) {
-        console.log(`Found date field '${fieldName}': ${value}`);
-        const formattedDate = formatDate(value);
-        if (formattedDate && formattedDate !== new Date().toISOString().split('T')[0]) {
-          date = formattedDate;
-          console.log(`Formatted date: ${date}`);
+      // Fall back to old template format
+      else if (modelConfig?.fileNamingTemplate && modelConfig?.fileNamingFields) {
+        console.log(`[RENAME] Using model-specific template naming: ${modelConfig.fileNamingTemplate}`);
+        const baseName = fileNamingService.generateFileName(
+          modelConfig.fileNamingTemplate,
+          modelConfig.fileNamingFields,
+          fields
+        );
+        
+        if (baseName) {
+          newFileName = `${baseName}.pdf`;
+          console.log(`[RENAME] Generated filename from template: ${newFileName}`);
         }
       }
     }
-
-    // Fallback: If no specific fields found, try to infer from all fields
-    if (!companyName || !ticketNumber || !date) {
-      console.log('Some fields missing, attempting fallback extraction...');
+    
+    // Fall back to intelligent detection if no model config or generation failed
+    if (!newFileName) {
+      console.log(`[RENAME] Using intelligent field detection for naming`);
       
-      // Look for the first non-empty field value that looks like what we need
+      // Try to find company name, ticket number, and date using intelligent field detection
+      let companyName = '';
+      let ticketNumber = '';
+      let date = '';
+
+      // Helper functions to detect field types by name patterns
+      const isCompanyField = (fieldName) => {
+        const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
+        return normalized.includes('company') || 
+               normalized.includes('customer') || 
+               normalized.includes('client') ||
+               normalized.includes('vendor') ||
+               normalized.includes('supplier');
+      };
+
+      const isTicketField = (fieldName) => {
+        const normalized = fieldName.toLowerCase().replace(/[_\s-]+/g, '');
+        return normalized.includes('ticket') || 
+               normalized.includes('invoice') && normalized.includes('number') ||
+               normalized.includes('reference') ||
+               normalized.includes('order') && normalized.includes('number');
+      };
+
+      const isDateField = (fieldName) => {
+        const normalized = fieldName.toLowerCase();
+        return normalized.includes('date') || 
+               normalized.includes('time') && normalized.includes('stamp');
+      };
+
+      // Extract values based on field name patterns
       for (const [fieldName, fieldValue] of Object.entries(fields)) {
         const value = extractFieldValue(fieldValue);
+        
         if (!value) continue;
 
-        // If no ticket number and value looks like a number/reference
-        if (!ticketNumber && /^[A-Z0-9\-#]+$/i.test(value) && value.length <= 20) {
-          ticketNumber = value;
-          console.log(`Using '${fieldName}' as ticket number: ${value}`);
+        // Company name
+        if (!companyName && isCompanyField(fieldName)) {
+          console.log(`Found company field '${fieldName}': ${value}`);
+          companyName = value;
         }
 
-        // If no date and value can be parsed as date
-        if (!date) {
-          const parsedDate = formatDate(value);
-          if (parsedDate && parsedDate !== new Date().toISOString().split('T')[0]) {
-            date = parsedDate;
-            console.log(`Using '${fieldName}' as date: ${date}`);
+        // Ticket/Invoice number
+        if (!ticketNumber && isTicketField(fieldName)) {
+          console.log(`Found ticket field '${fieldName}': ${value}`);
+          ticketNumber = value;
+        }
+
+        // Date
+        if (!date && isDateField(fieldName)) {
+          console.log(`Found date field '${fieldName}': ${value}`);
+          const formattedDate = formatDate(value);
+          if (formattedDate && formattedDate !== new Date().toISOString().split('T')[0]) {
+            date = formattedDate;
+            console.log(`Formatted date: ${date}`);
           }
         }
       }
+
+      // Fallback: If no specific fields found, try to infer from all fields
+      if (!companyName || !ticketNumber || !date) {
+        console.log('Some fields missing, attempting fallback extraction...');
+        
+        // Look for the first non-empty field value that looks like what we need
+        for (const [fieldName, fieldValue] of Object.entries(fields)) {
+          const value = extractFieldValue(fieldValue);
+          if (!value) continue;
+
+          // If no ticket number and value looks like a number/reference
+          if (!ticketNumber && /^[A-Z0-9\-#]+$/i.test(value) && value.length <= 20) {
+            ticketNumber = value;
+            console.log(`Using '${fieldName}' as ticket number: ${value}`);
+          }
+
+          // If no date and value can be parsed as date
+          if (!date) {
+            const parsedDate = formatDate(value);
+            if (parsedDate && parsedDate !== new Date().toISOString().split('T')[0]) {
+              date = parsedDate;
+              console.log(`Using '${fieldName}' as date: ${date}`);
+            }
+          }
+        }
+      }
+
+      // Clean values for filename
+      companyName = cleanForFilename(companyName || 'Unknown');
+      ticketNumber = cleanForFilename(ticketNumber || 'NoTicket');
+      date = date || new Date().toISOString().split('T')[0];
+
+      // Generate new filename
+      const baseFileName = `${companyName}_${ticketNumber}_${date}`;
+      newFileName = `${baseFileName}.pdf`;
     }
-
-    // Clean values for filename
-    companyName = cleanForFilename(companyName || 'Unknown');
-    ticketNumber = cleanForFilename(ticketNumber || 'NoTicket');
-    date = date || new Date().toISOString().split('T')[0];
-
-    // Generate new filename
-    const baseFileName = `${companyName}_${ticketNumber}_${date}`;
-    const newFileName = `${baseFileName}.pdf`;
     console.log(`\n[RENAME] Processing job ${jobId}`);
     console.log(`[RENAME]   Original: ${job.fileName}`);
     console.log(`[RENAME]   Company: ${companyName}`);

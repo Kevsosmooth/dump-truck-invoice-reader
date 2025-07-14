@@ -6,6 +6,9 @@ import { queryClient } from '@/lib/query-client'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/Login'
 import { AuthCallback } from './pages/AuthCallback'
+import { CheckoutSuccess } from './pages/CheckoutSuccess'
+import { CheckoutCancel } from './pages/CheckoutCancel'
+import TransactionHistory from './pages/TransactionHistory'
 import { AppWrapper } from './components/AppWrapper'
 import { Loader2 } from 'lucide-react'
 import './index.css'
@@ -31,10 +34,34 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route
+        path="/checkout/success"
+        element={
+          <PrivateRoute>
+            <CheckoutSuccess />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/checkout/cancel"
+        element={
+          <PrivateRoute>
+            <CheckoutCancel />
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/"
         element={
           <PrivateRoute>
             <App />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <PrivateRoute>
+            <TransactionHistory />
           </PrivateRoute>
         }
       />

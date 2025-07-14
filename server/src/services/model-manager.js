@@ -574,7 +574,7 @@ class ModelManager {
       for (const azureModel of azureModels) {
         try {
           // Check if model already exists
-          const existingModel = await prisma.modelConfiguration.findUnique({
+          const existingModel = await prisma.modelConfiguration.findFirst({
             where: { azureModelId: azureModel.modelId }
           });
 

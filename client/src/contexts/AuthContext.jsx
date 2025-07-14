@@ -110,8 +110,11 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Refresh user data (alias for checkAuth)
+  const refreshUser = checkAuth;
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, isLoggingOut, login, logout, checkAuth, token, updateCredits }}>
+    <AuthContext.Provider value={{ user, isLoading, isLoggingOut, login, logout, checkAuth, token, updateCredits, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
