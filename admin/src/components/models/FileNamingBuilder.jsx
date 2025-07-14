@@ -14,12 +14,16 @@ import {
 import {
   DndContext,
   closestCenter,
+  rectIntersection,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   DragOverlay,
+  useDraggable,
+  useDroppable,
 } from '@dnd-kit/core';
+import { snapCenterToCursor } from '@dnd-kit/modifiers';
 import {
   arrayMove,
   SortableContext,
@@ -46,19 +50,54 @@ const TRANSFORMATIONS = [
 ];
 
 // Draggable field item
-function DraggableField({ field, isDragging }) {
+function DraggableField({ field }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging,
+  } = useDraggable({
+    id: `field-${field.fieldName}`,
+    data: { field }
+  });
+
   const style = {
-    opacity: isDragging ? 0.5 : 1,
-    cursor: 'grab',
+    opacity: isDragging ? 0 : 1,
+    cursor: isDragging ? 'grabbing' : 'grab',
+    touchAction: 'none', // Prevent touch scrolling when dragging
   };
 
   return (
     <div 
+      ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-md hover:bg-primary/20 transition-colors"
+      {...listeners}
+      {...attributes}
+      className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-md hover:bg-primary/20 transition-opacity select-none"
     >
       <Hash className="h-4 w-4 text-primary" />
       <span className="text-sm font-medium">{field.displayName || field.fieldName}</span>
+    </div>
+  );
+}
+
+// Droppable zone wrapper
+function DroppableZone({ children, elements }) {
+  const {
+    setNodeRef,
+    isOver,
+  } = useDroppable({
+    id: 'template-drop-zone',
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[100px] rounded-md border-2 border-dashed ${
+        elements.length === 0 ? 'border-muted-foreground/25' : 'border-transparent'
+      } ${isOver ? 'border-primary/50 bg-primary/5' : ''} p-4 transition-colors`}
+    >
+      {children}
     </div>
   );
 }
@@ -77,7 +116,7 @@ function TemplateElement({ element, index, onUpdate, onRemove }) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0 : 1,
   };
 
   if (element.type === 'field') {
@@ -170,18 +209,20 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
   );
 
   const handleDragStart = (event) => {
-    setActiveId(event.active.id);
+    const { active } = event;
+    setActiveId(active.id);
   };
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
     
+    setActiveId(null);
+    
     if (!over) {
-      setActiveId(null);
       return;
     }
 
-    // If dragging from available fields to template
+    // If dragging from available fields to template - only accept drops on the exact drop zone
     if (active.id.startsWith('field-') && over.id === 'template-drop-zone') {
       const fieldName = active.id.replace('field-', '');
       const field = availableFields.find(f => f.fieldName === fieldName);
@@ -205,18 +246,8 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
         onChange(arrayMove(elements, oldIndex, newIndex));
       }
     }
-    
-    setActiveId(null);
   };
 
-  const handleDragOver = (event) => {
-    const { active, over } = event;
-    
-    // Allow dropping fields onto the template area
-    if (active.id.startsWith('field-') && over?.id === 'template-drop-zone') {
-      return;
-    }
-  };
 
   const addTextElement = () => {
     if (!textValue.trim()) return;
@@ -244,10 +275,9 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={rectIntersection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onDragOver={handleDragOver}
     >
       <div className="space-y-4">
         {/* Available Fields */}
@@ -257,13 +287,10 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
             <CardContent className="pt-4">
               <div className="flex flex-wrap gap-2">
                 {availableFields.map(field => (
-                  <div
-                    key={field.fieldName}
-                    id={`field-${field.fieldName}`}
-                    className="cursor-grab"
-                  >
-                    <DraggableField field={field} isDragging={activeId === `field-${field.fieldName}`} />
-                  </div>
+                  <DraggableField 
+                    key={field.fieldName} 
+                    field={field} 
+                  />
                 ))}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
@@ -278,12 +305,7 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
           <Label className="text-sm font-medium mb-2 block">File Name Template</Label>
           <Card>
             <CardContent className="pt-4">
-              <div 
-                id="template-drop-zone"
-                className={`min-h-[100px] rounded-md border-2 border-dashed ${
-                  elements.length === 0 ? 'border-muted-foreground/25' : 'border-transparent'
-                } p-4`}
-              >
+              <DroppableZone elements={elements}>
                 {elements.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
                     Drag fields here to build your file name template
@@ -306,7 +328,7 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
                     </div>
                   </SortableContext>
                 )}
-              </div>
+              </DroppableZone>
 
               {/* Add Text Element */}
               <div className="flex items-center gap-2 mt-4">
@@ -342,13 +364,33 @@ export default function FileNamingBuilder({ availableFields, elements, onChange,
         )}
       </div>
 
-      <DragOverlay>
+      <DragOverlay modifiers={[snapCenterToCursor]}>
         {activeId && activeId.startsWith('field-') && (
-          <DraggableField 
-            field={availableFields.find(f => `field-${f.fieldName}` === activeId)} 
-            isDragging={true}
-          />
+          <div className="flex items-center gap-2 px-3 py-2 bg-primary border-2 border-primary text-primary-foreground rounded-md shadow-xl cursor-grabbing pointer-events-none">
+            <Hash className="h-4 w-4" />
+            <span className="text-sm font-medium">
+              {availableFields.find(f => `field-${f.fieldName}` === activeId)?.displayName || 
+               availableFields.find(f => `field-${f.fieldName}` === activeId)?.fieldName}
+            </span>
+          </div>
         )}
+        {activeId && activeId.startsWith('element-') && (() => {
+          const element = elements.find(e => e.id === activeId);
+          return element?.type === 'field' ? (
+            <div className="flex items-center gap-2 bg-primary border-2 border-primary text-primary-foreground rounded-md p-2 shadow-xl cursor-grabbing pointer-events-none">
+              <GripVertical className="h-4 w-4" />
+              <div>
+                <div className="font-medium text-sm">{element.displayName || element.fieldName}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-muted border-2 border-border rounded-md p-2 shadow-xl cursor-grabbing pointer-events-none">
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+              <Type className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">{element?.value || 'Text'}</span>
+            </div>
+          );
+        })()}
       </DragOverlay>
     </DndContext>
   );
