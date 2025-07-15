@@ -135,7 +135,7 @@ export class StripeService {
           status: 'PENDING',
           packageId: packageId,
           stripePaymentIntentId: session.payment_intent || null,
-          description: `Purchase of ${creditPackage.name}`,
+          description: creditPackage.description || `Purchase of ${creditPackage.name}`,
           metadata: {
             checkoutSessionId: session.id,
             packageName: creditPackage.name,
@@ -347,7 +347,7 @@ export class StripeService {
           stripePaymentIntentId: paymentIntent.id,
           ipAddress: ipAddress,
           userAgent: userAgent,
-          description: `Reorder of ${creditPackage.name}`,
+          description: creditPackage.description || `Reorder of ${creditPackage.name}`,
           metadata: {
             reorder: true,
             packageName: creditPackage.name,

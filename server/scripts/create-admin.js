@@ -1,80 +1,49 @@
-import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function createAdminUser() {
   try {
-    const email = process.argv[2];
-    const password = process.argv[3];
-    const name = process.argv[4] || 'Admin User';
-
-    if (!email || !password) {
-      console.error('Usage: node create-admin.js <email> <password> [name]');
-      process.exit(1);
-    }
-
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
-      where: { email }
+      where: { email: 'mrkevinsuriel@gmail.com' }
     });
 
     if (existingUser) {
-      console.log('User already exists. Updating to admin role...');
-      
-      // Update existing user to admin
+      console.log('User already exists. Updating to admin...');
       const updatedUser = await prisma.user.update({
-        where: { email },
+        where: { email: 'mrkevinsuriel@gmail.com' },
         data: {
           role: 'ADMIN',
           isActive: true,
-          ...(password && { password: await bcrypt.hash(password, 10) })
+          credits: 1000 // Give some initial credits
         }
       });
-
-      console.log('User updated successfully:');
-      console.log('Email:', updatedUser.email);
-      console.log('Role:', updatedUser.role);
-      console.log('Active:', updatedUser.isActive);
+      console.log('User updated to admin:', updatedUser.email);
     } else {
-      // Create new admin user
-      const hashedPassword = await bcrypt.hash(password, 10);
+      console.log('Creating new admin user...');
+      
+      // Create a temporary password (you should change this after first login)
+      const hashedPassword = await bcrypt.hash('Admin123!', 10);
       
       const newUser = await prisma.user.create({
         data: {
-          email,
+          email: 'mrkevinsuriel@gmail.com',
           password: hashedPassword,
-          name,
           role: 'ADMIN',
           isActive: true,
-          credits: 1000, // Give admin plenty of credits
+          credits: 1000, // Give some initial credits
+          firstName: 'Kevin',
+          lastName: 'Suriel'
         }
       });
-
-      console.log('Admin user created successfully:');
+      
+      console.log('Admin user created successfully!');
       console.log('Email:', newUser.email);
-      console.log('Name:', newUser.name);
-      console.log('Role:', newUser.role);
-      console.log('Credits:', newUser.credits);
+      console.log('Temporary password: Admin123!');
+      console.log('Please change this password after logging in.');
     }
-
-    // Create audit log entry
-    await prisma.auditLog.create({
-      data: {
-        userId: 1, // System user
-        action: 'ADMIN_USER_CREATED',
-        entityType: 'USER',
-        entityId: email,
-        details: {
-          createdBy: 'script',
-          timestamp: new Date().toISOString()
-        }
-      }
-    });
-
   } catch (error) {
     console.error('Error creating admin user:', error);
   } finally {

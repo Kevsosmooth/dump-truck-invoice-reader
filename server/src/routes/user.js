@@ -1,5 +1,7 @@
 import express from 'express';
 import { prisma } from '../index.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { getDashboardAnalytics } from '../services/analytics.js';
 
 const router = express.Router();
 
@@ -127,6 +129,17 @@ router.post('/credits/add', async (req, res) => {
   } catch (error) {
     console.error('Error adding credits:', error);
     return res.status(500).json({ error: 'Failed to add credits' });
+  }
+});
+
+// Get dashboard analytics for the current user
+router.get('/dashboard/analytics', authenticateToken, async (req, res) => {
+  try {
+    const analytics = await getDashboardAnalytics(req.user.id);
+    res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching dashboard analytics:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
   }
 });
 

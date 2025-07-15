@@ -1,6 +1,7 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateAdmin } from '../middleware/admin-auth.js';
+import { getAdminAnalytics } from '../services/analytics.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -148,14 +149,17 @@ router.get('/overview', async (req, res) => {
     const apiResponseTime = processingTimes[0]?.avg_ms ? Math.round(processingTimes[0].avg_ms) : 45;
     const storageUsage = Math.min(Math.round((storageInfo * 0.5) / 1000), 95); // Estimate 0.5MB per job, cap at 95%
 
+    // Get enhanced analytics from our service
+    const adminAnalytics = await getAdminAnalytics();
+
     res.json({
-      totalUsers,
-      usersTrend,
-      totalDocuments,
-      documentsTrend,
-      creditsUsed: creditsUsed._sum.amount || 0,
-      creditsTrend,
-      activeSessions,
+      totalUsers: adminAnalytics.totalUsers,
+      usersTrend: adminAnalytics.usersTrend,
+      totalDocuments: adminAnalytics.totalDocuments,
+      documentsTrend: adminAnalytics.documentsTrend,
+      creditsUsed: adminAnalytics.creditsUsed,
+      creditsTrend: adminAnalytics.creditsTrend,
+      activeSessions: adminAnalytics.activeSessions,
       recentActivity: formattedActivity,
       recentActivityPagination: {
         page,
@@ -163,8 +167,8 @@ router.get('/overview', async (req, res) => {
         total: totalActivityCount,
         totalPages: Math.ceil(totalActivityCount / limit)
       },
-      apiResponseTime,
-      storageUsage
+      apiResponseTime: adminAnalytics.apiResponseTime,
+      storageUsage: adminAnalytics.storageUsage
     });
   } catch (error) {
     console.error('Analytics overview error:', error);
@@ -189,7 +193,7 @@ router.get('/users', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           DATE("createdAt") as date,
-          COUNT(*) as count
+          COUNT(*)::int as count
         FROM "User"
         WHERE "createdAt" >= ${startDate}
         GROUP BY DATE("createdAt")
@@ -217,7 +221,7 @@ router.get('/users', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           u.id, u.email, u."firstName", u."lastName",
-          COALESCE(SUM(t.amount), 0) as credits_used
+          COALESCE(SUM(t.amount), 0)::int as credits_used
         FROM "User" u
         LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'USAGE'
         GROUP BY u.id, u.email, u."firstName", u."lastName"
@@ -258,8 +262,8 @@ router.get('/credits', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           DATE("createdAt") as date,
-          SUM(CASE WHEN type = 'USAGE' THEN amount ELSE 0 END) as used,
-          SUM(CASE WHEN type IN ('PURCHASE', 'ADMIN_CREDIT') THEN amount ELSE 0 END) as added
+          SUM(CASE WHEN type = 'USAGE' THEN amount ELSE 0 END)::int as used,
+          SUM(CASE WHEN type IN ('PURCHASE', 'ADMIN_CREDIT') THEN amount ELSE 0 END)::int as added
         FROM "Transaction"
         WHERE "createdAt" >= ${startDate}
         GROUP BY DATE("createdAt")
@@ -281,7 +285,7 @@ router.get('/credits', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           u.id, u.email, u."firstName", u."lastName", u.credits as current_credits,
-          COALESCE(SUM(t.amount), 0) as total_used
+          COALESCE(SUM(t.amount), 0)::int as total_used
         FROM "User" u
         LEFT JOIN "Transaction" t ON u.id = t."userId" AND t.type = 'USAGE'
         WHERE t."createdAt" >= ${startDate}
@@ -292,25 +296,30 @@ router.get('/credits', async (req, res) => {
       
       // Credit distribution
       prisma.$queryRaw`
+        WITH credit_ranges AS (
+          SELECT 
+            CASE 
+              WHEN credits = 0 THEN '0'
+              WHEN credits BETWEEN 1 AND 50 THEN '1-50'
+              WHEN credits BETWEEN 51 AND 100 THEN '51-100'
+              WHEN credits BETWEEN 101 AND 500 THEN '101-500'
+              ELSE '500+'
+            END as credit_range,
+            CASE 
+              WHEN credits = 0 THEN 1
+              WHEN credits BETWEEN 1 AND 50 THEN 2
+              WHEN credits BETWEEN 51 AND 100 THEN 3
+              WHEN credits BETWEEN 101 AND 500 THEN 4
+              ELSE 5
+            END as sort_order
+          FROM "User"
+        )
         SELECT 
-          CASE 
-            WHEN credits = 0 THEN '0'
-            WHEN credits BETWEEN 1 AND 50 THEN '1-50'
-            WHEN credits BETWEEN 51 AND 100 THEN '51-100'
-            WHEN credits BETWEEN 101 AND 500 THEN '101-500'
-            ELSE '500+'
-          END as range,
-          COUNT(*) as count
-        FROM "User"
-        GROUP BY range
-        ORDER BY 
-          CASE range
-            WHEN '0' THEN 1
-            WHEN '1-50' THEN 2
-            WHEN '51-100' THEN 3
-            WHEN '101-500' THEN 4
-            ELSE 5
-          END
+          credit_range,
+          COUNT(*)::int as count
+        FROM credit_ranges
+        GROUP BY credit_range, sort_order
+        ORDER BY sort_order
       `
     ]);
 
@@ -322,7 +331,10 @@ router.get('/credits', async (req, res) => {
         count: item._count._all
       })),
       topCreditUsers,
-      creditDistribution
+      creditDistribution: creditDistribution.map(item => ({
+        range: item.credit_range,
+        count: item.count
+      }))
     });
   } catch (error) {
     console.error('Credit analytics error:', error);
@@ -347,9 +359,9 @@ router.get('/documents', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           DATE("createdAt") as date,
-          COUNT(*) as total,
-          COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
-          COUNT(CASE WHEN status = 'FAILED' THEN 1 END) as failed
+          COUNT(*)::int as total,
+          COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int as completed,
+          COUNT(CASE WHEN status = 'FAILED' THEN 1 END)::int as failed
         FROM "Job"
         WHERE "createdAt" >= ${startDate}
         GROUP BY DATE("createdAt")
@@ -515,8 +527,8 @@ router.get('/revenue', async (req, res) => {
       prisma.$queryRaw`
         SELECT 
           DATE("createdAt") as date,
-          SUM(amount) * 0.10 as revenue,
-          COUNT(*) as purchases
+          (SUM(amount) * 0.10)::float as revenue,
+          COUNT(*)::int as purchases
         FROM "Transaction"
         WHERE type = 'PURCHASE' AND "createdAt" >= ${startDate}
         GROUP BY DATE("createdAt")
@@ -532,8 +544,8 @@ router.get('/revenue', async (req, res) => {
             WHEN amount <= 1000 THEN 'Large (501-1000)'
             ELSE 'Enterprise (1000+)'
           END as package_size,
-          COUNT(*) as count,
-          SUM(amount) * 0.10 as revenue
+          COUNT(*)::int as count,
+          (SUM(amount) * 0.10)::float as revenue
         FROM "Transaction"
         WHERE type = 'PURCHASE' AND "createdAt" >= ${startDate}
         GROUP BY package_size

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { CreditCard, TrendingUp, Package, Users, AlertCircle, Plus, Minus } from 'lucide-react';
 import { toast } from 'sonner';
+import PackageManager from '@/components/credits/PackageManager';
 
 export default function Credits() {
   const [creditStats, setCreditStats] = useState({
@@ -31,7 +32,6 @@ export default function Credits() {
     totalRevenue: 0,
     averageCreditsPerUser: 0
   });
-  const [creditPackages, setCreditPackages] = useState([]);
   const [bulkUsers, setBulkUsers] = useState('');
   const [bulkAction, setBulkAction] = useState('add');
   const [bulkAmount, setBulkAmount] = useState('');
@@ -47,13 +47,8 @@ export default function Credits() {
   const fetchCreditData = async () => {
     try {
       setLoading(true);
-      const [statsResponse, packagesResponse] = await Promise.all([
-        adminAPI.get('/credits/stats'),
-        adminAPI.get('/credits/packages')
-      ]);
-
+      const statsResponse = await adminAPI.get('/credits/stats');
       setCreditStats(statsResponse.data);
-      setCreditPackages(packagesResponse.data);
     } catch (error) {
       console.error('Failed to fetch credit data:', error);
       toast.error('Failed to load credit information');
@@ -113,16 +108,6 @@ export default function Credits() {
     }
   };
 
-  const updatePackage = async (packageId, updates) => {
-    try {
-      await adminAPI.patch(`/credits/packages/${packageId}`, updates);
-      toast.success('Package updated successfully');
-      fetchCreditData();
-    } catch (error) {
-      console.error('Failed to update package:', error);
-      toast.error('Failed to update package');
-    }
-  };
 
   const formatCurrency = (cents) => {
     return new Intl.NumberFormat('en-US', {
@@ -196,51 +181,7 @@ export default function Credits() {
       </div>
 
       {/* Credit Packages */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Credit Packages</CardTitle>
-          <CardDescription>Configure available credit packages for purchase</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            {creditPackages.map((pkg) => (
-              <Card key={pkg.id}>
-                <CardHeader>
-                  <CardTitle className="text-lg">{pkg.name}</CardTitle>
-                  <CardDescription>{pkg.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Credits</span>
-                    <span className="font-semibold">{pkg.credits}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Price</span>
-                    <span className="font-semibold">{formatCurrency(pkg.price)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Per Credit</span>
-                    <span className="text-sm">{formatCurrency(pkg.price / pkg.credits)}</span>
-                  </div>
-                  <div className="pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => {
-                        // In a real app, this would open an edit dialog
-                        toast.info('Package editing coming soon');
-                      }}
-                    >
-                      Edit Package
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <PackageManager />
 
       {/* Bulk Operations */}
       <Card>

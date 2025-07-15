@@ -23,10 +23,13 @@ export async function processDocumentSync(jobData) {
       throw new Error(`Job ${jobId} not found`);
     }
 
-    // Update job status to PROCESSING
+    // Update job status to PROCESSING and track start time
     await prisma.job.update({
       where: { id: jobId },
-      data: { status: 'PROCESSING' },
+      data: { 
+        status: 'PROCESSING',
+        processingStartTime: new Date()
+      },
     });
 
     // Extract blob path from URL
@@ -45,18 +48,43 @@ export async function processDocumentSync(jobData) {
     // Process with Azure using the URL
     const result = await processDocumentFromUrl(sasUrl, job.fileName, modelId);
 
-    // Update job with results
+    // Calculate analytics data
+    const confidenceScores = {};
+    let totalConfidence = 0;
+    let extractedFieldsCount = 0;
+
+    // Extract confidence scores for each field
+    if (result.fields) {
+      Object.entries(result.fields).forEach(([fieldName, fieldValue]) => {
+        if (fieldName !== '_confidence' && fieldValue) {
+          extractedFieldsCount++;
+          // Extract confidence from field if available
+          const confidence = fieldValue.confidence || result.confidence || 0.8;
+          confidenceScores[fieldName] = confidence;
+          totalConfidence += confidence;
+        }
+      });
+    }
+
+    const avgConfidence = extractedFieldsCount > 0 ? 
+      (totalConfidence / extractedFieldsCount) * 100 : 0;
+
+    // Update job with results and analytics
     await prisma.job.update({
       where: { id: jobId },
       data: {
         status: 'COMPLETED',
         extractedFields: {
           ...result.fields,
-          _confidence: result.confidence // Store confidence in the fields
+          _confidence: result.confidence // Store overall confidence in the fields
         },
         completedAt: new Date(),
+        processingEndTime: new Date(),
         pagesProcessed: 1,
         creditsUsed: 1,
+        confidenceScores,
+        extractedFieldsCount,
+        avgConfidence,
       },
     });
 
@@ -69,6 +97,42 @@ export async function processDocumentSync(jobData) {
         },
       },
     });
+
+    // Create extraction analytics records
+    if (extractedFieldsCount > 0 && modelId) {
+      // First, find the custom model by azureModelId
+      const azureModelId = modelId.split('/').pop();
+      const customModel = await prisma.customModel.findFirst({
+        where: { azureModelId: azureModelId }
+      });
+
+      if (customModel) {
+        const analyticsData = Object.entries(confidenceScores).map(([fieldName, confidence]) => ({
+          modelId: customModel.id, // Use the actual CustomModel.id (CUID)
+          modelConfigId,
+          fieldName,
+          confidenceScore: confidence,
+          userId,
+          jobId,
+        }));
+
+        await prisma.extractionAnalytics.createMany({
+          data: analyticsData,
+        });
+
+        // Update model analytics
+        await prisma.customModel.update({
+          where: { id: customModel.id },
+          data: {
+            totalExtractions: { increment: 1 },
+            avgConfidenceScore: avgConfidence / 100, // Store as decimal
+            lastUsedAt: new Date(),
+          },
+        });
+      } else {
+        console.warn(`[ANALYTICS] Custom model not found for Azure model ID: ${azureModelId}`);
+      }
+    }
 
     // Deduct credits from user (except for admin with ID 1)
     if (userId !== 1) {

@@ -37,8 +37,6 @@ export default function AuthCallback() {
         const response = await adminAPI.get('/auth/me');
         
         if (response.data) {
-          toast.success('Login successful!');
-          
           // The AdminAuthContext will handle loading the user data
           navigate('/');
         }

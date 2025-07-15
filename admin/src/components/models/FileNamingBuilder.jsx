@@ -42,11 +42,21 @@ const TRANSFORMATIONS = [
   { value: 'lowercase', label: 'lowercase' },
   { value: 'camelcase', label: 'camelCase' },
   { value: 'kebabcase', label: 'kebab-case' },
-  { value: 'date:YYYY-MM-DD', label: 'Date (YYYY-MM-DD)' },
-  { value: 'date:MM-DD-YYYY', label: 'Date (MM-DD-YYYY)' },
-  { value: 'date:DD-MM-YYYY', label: 'Date (DD-MM-YYYY)' },
+  { value: 'date:YYYY-MM-DD', label: 'Date (2025-05-22)' },
+  { value: 'date:MM-DD-YYYY', label: 'Date (05-22-2025)' },
+  { value: 'date:DD-MM-YYYY', label: 'Date (22-05-2025)' },
+  { value: 'date:MMM_DD_YYYY', label: 'Date (May_22_2025)' },
+  { value: 'date:MMMM_DD_YYYY', label: 'Date (May_22_2025)' },
+  { value: 'date:DD_MMM_YYYY', label: 'Date (22_May_2025)' },
+  { value: 'date:MMM-DD-YYYY', label: 'Date (May-22-2025)' },
+  { value: 'date:DD-MMM-YYYY', label: 'Date (22-May-2025)' },
+  { value: 'date:YYYY_MM_DD', label: 'Date (2025_05_22)' },
+  { value: 'date:YYYYMMDD', label: 'Date (20250522)' },
+  { value: 'date:MMDDYYYY', label: 'Date (05222025)' },
+  { value: 'truncate:15', label: 'Truncate (15 chars)' },
   { value: 'truncate:20', label: 'Truncate (20 chars)' },
   { value: 'truncate:30', label: 'Truncate (30 chars)' },
+  { value: 'truncate:50', label: 'Truncate (50 chars)' },
 ];
 
 // Draggable field item
@@ -134,14 +144,18 @@ function TemplateElement({ element, index, onUpdate, onRemove }) {
           <div className="font-medium text-sm">{element.displayName || element.fieldName}</div>
           <Select
             value={element.transform || ''}
-            onValueChange={(value) => onUpdate(index, { ...element, transform: value })}
+            onValueChange={(value) => {
+              // If 'none' is selected, set transform to empty string
+              const transformValue = value === 'none' ? '' : value;
+              onUpdate(index, { ...element, transform: transformValue });
+            }}
           >
             <SelectTrigger className="h-7 text-xs mt-1">
               <SelectValue placeholder="Transform" />
             </SelectTrigger>
             <SelectContent>
               {TRANSFORMATIONS.map(t => (
-                <SelectItem key={t.value} value={t.value || 'none'}>
+                <SelectItem key={t.value || 'none'} value={t.value || 'none'}>
                   {t.label}
                 </SelectItem>
               ))}

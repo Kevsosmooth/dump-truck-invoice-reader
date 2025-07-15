@@ -69,13 +69,13 @@ export function CheckoutSuccess() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center text-center">
               <Loader2 className="h-12 w-12 animate-spin text-emerald-600 mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Verifying your payment...</h2>
-              <p className="text-gray-600">Please wait while we confirm your purchase.</p>
+              <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-gray-100">Verifying your payment...</h2>
+              <p className="text-gray-600 dark:text-gray-400">Please wait while we confirm your purchase.</p>
             </div>
           </CardContent>
         </Card>
@@ -85,13 +85,13 @@ export function CheckoutSuccess() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center text-center">
               <XCircle className="h-12 w-12 text-red-500 mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Payment Error</h2>
-              <p className="text-gray-600 mb-6">{error}</p>
+              <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-gray-100">Payment Error</h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">{error}</p>
               <Button 
                 type="button"
                 onClick={() => navigate('/')}
@@ -108,35 +108,35 @@ export function CheckoutSuccess() {
 
   if (success && transaction) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center text-center">
               <CheckCircle className="h-12 w-12 text-emerald-600 mb-4" />
-              <h2 className="text-2xl font-semibold mb-2">Payment Successful!</h2>
-              <p className="text-gray-600 mb-6">
+              <h2 className="text-2xl font-semibold mb-2 text-gray-900 dark:text-gray-100">Payment Successful!</h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Your credits have been added to your account.
               </p>
 
-              <div className="w-full bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="w-full bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Package</span>
-                    <span className="font-medium">{transaction.package?.name}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Package</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{transaction.package?.name}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Credits Added</span>
-                    <span className="font-medium text-emerald-600">
+                    <span className="text-gray-600 dark:text-gray-400">Credits Added</span>
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
                       +{transaction.credits.toLocaleString()} credits
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Amount Paid</span>
-                    <span className="font-medium">{formatPrice(transaction.amount)}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Amount Paid</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{formatPrice(transaction.amount)}</span>
                   </div>
-                  <div className="flex items-center justify-between pt-3 border-t">
-                    <span className="text-gray-600">Transaction ID</span>
-                    <span className="font-mono text-sm">{transaction.id.slice(0, 8)}</span>
+                  <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-600 dark:text-gray-400">Transaction ID</span>
+                    <span className="font-mono text-sm text-gray-900 dark:text-gray-100">{transaction.id.slice(0, 8)}</span>
                   </div>
                 </div>
               </div>

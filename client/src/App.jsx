@@ -98,6 +98,8 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [filePageCounts, setFilePageCounts] = useState({});
@@ -163,6 +165,24 @@ function App() {
       setAvailableModels([]);
     } finally {
       setModelsLoading(false);
+    }
+  };
+
+  // Fetch dashboard analytics
+  const fetchAnalytics = async () => {
+    if (!user || !token) return;
+    
+    setAnalyticsLoading(true);
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/user/dashboard/analytics`);
+      if (response.ok) {
+        const data = await response.json();
+        setAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    } finally {
+      setAnalyticsLoading(false);
     }
   };
 
@@ -296,6 +316,18 @@ function App() {
     }
   }, [user, token]);
   
+  // Fetch models and analytics when user logs in
+  useEffect(() => {
+    if (user && token) {
+      fetchAvailableModels();
+      fetchAnalytics();
+      
+      // Refresh analytics every 30 seconds
+      const interval = setInterval(fetchAnalytics, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, token]);
+
   // Fetch tier info in development
   useEffect(() => {
     const fetchTierInfo = async () => {
@@ -563,6 +595,12 @@ function App() {
     e.preventDefault();
     setIsDragging(false);
     
+    // Check if models are available
+    if (!availableModels || availableModels.length === 0) {
+      alert('No models available. Please contact your administrator to set up models before uploading documents.');
+      return;
+    }
+    
     // Don't allow new uploads if session is in progress
     if (currentSession && sessionProgress.status === 'processing') {
       alert('Please wait for the current session to complete before uploading new files.');
@@ -581,6 +619,13 @@ function App() {
   };
 
   const handleFileSelect = (e) => {
+    // Check if models are available
+    if (!availableModels || availableModels.length === 0) {
+      alert('No models available. Please contact your administrator to set up models before uploading documents.');
+      e.target.value = '';
+      return;
+    }
+    
     // Don't allow new uploads if session is in progress
     if (currentSession && sessionProgress.status === 'processing') {
       alert('Please wait for the current session to complete before uploading new files.');
@@ -1140,29 +1185,29 @@ function App() {
           <StatCard
             icon={<TrendingUp className="h-5 w-5" />}
             title="Success Rate"
-            value="98.5%"
-            trend="+2.3%"
+            value={analyticsLoading ? '...' : analytics?.stats?.successRate?.value || '0%'}
+            trend={analytics?.stats?.successRate?.trend}
             color="emerald"
           />
           <StatCard
             icon={<Clock className="h-5 w-5" />}
             title="Avg. Process Time"
-            value="12s"
-            trend="-3s"
+            value={analyticsLoading ? '...' : analytics?.stats?.avgProcessingTime?.value || '0s'}
+            trend={analytics?.stats?.avgProcessingTime?.trend}
             color="blue"
           />
           <StatCard
             icon={<FileText className="h-5 w-5" />}
             title="Documents Today"
-            value="24"
-            trend="+12"
+            value={analyticsLoading ? '...' : analytics?.stats?.documentsToday?.value || '0'}
+            trend={analytics?.stats?.documentsToday?.trend}
             color="purple"
           />
           <StatCard
             icon={<BarChart3 className="h-5 w-5" />}
             title="Accuracy Score"
-            value="99.2%"
-            trend="+0.5%"
+            value={analyticsLoading ? '...' : analytics?.stats?.accuracyScore?.value || '0%'}
+            trend={analytics?.stats?.accuracyScore?.trend}
             color="pink"
           />
         </div>
@@ -1209,10 +1254,14 @@ function App() {
                       }`} />
                     </div>
                     <p className="mt-4 text-lg font-medium text-gray-700 dark:text-gray-200">
-                      Drop your invoices here
+                      {!availableModels || availableModels.length === 0 
+                        ? 'No Models Available' 
+                        : 'Drop your invoices here'}
                     </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                      or click to browse multiple files from your computer
+                      {!availableModels || availableModels.length === 0 
+                        ? 'Please contact your administrator to set up models' 
+                        : 'or click to browse multiple files from your computer'}
                     </p>
                     <input
                       type="file"
@@ -1227,7 +1276,7 @@ function App() {
                       size="lg" 
                       className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl"
                       onClick={() => document.getElementById('file-upload')?.click()}
-                      disabled={isUploading || (currentSession && sessionProgress.status === 'processing')}
+                      disabled={isUploading || (currentSession && sessionProgress.status === 'processing') || !availableModels || availableModels.length === 0}
                     >
                       {isUploading ? (
                         <>
@@ -1239,6 +1288,8 @@ function App() {
                           <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                           Session in Progress
                         </>
+                      ) : !availableModels || availableModels.length === 0 ? (
+                        'No Models Available'
                       ) : (
                         'Select Invoices'
                       )}
@@ -2040,20 +2091,37 @@ function App() {
                   <div>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">Model Version</span>
-                      <span className="font-medium">v2.4.1</span>
+                      <span className="font-medium">
+                        {analyticsLoading ? '...' : 
+                          analytics?.modelPerformance?.currentModel?.displayName || 
+                          analytics?.modelPerformance?.currentModel?.version || 
+                          'No model data'}
+                      </span>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-gray-600">Confidence Score</span>
-                      <span className="font-medium text-emerald-600">98.5%</span>
+                      <span className="font-medium text-emerald-600">
+                        {analyticsLoading ? '...' : 
+                          analytics?.modelPerformance?.avgConfidence ? 
+                            `${analytics.modelPerformance.avgConfidence.toFixed(1)}%` : '0%'}
+                      </span>
                     </div>
-                    <Progress value={98.5} className="h-2" />
+                    <Progress 
+                      value={analytics?.modelPerformance?.avgConfidence || 0} 
+                      className="h-2" 
+                    />
                   </div>
                   <div>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">Fields Extracted</span>
-                      <span className="font-medium">15/15</span>
+                      <span className="font-medium">
+                        {analyticsLoading ? '...' : 
+                          analytics?.modelPerformance?.fieldsExtracted ? 
+                            `${analytics.modelPerformance.fieldsExtracted.successful}/${analytics.modelPerformance.fieldsExtracted.total}` : 
+                            '0/0'}
+                      </span>
                     </div>
                   </div>
                 </div>

@@ -50,7 +50,15 @@ export class FileNamingService {
         return this.toKebabCase(strValue);
         
       case 'date': {
-        const dateFormat = params[0] || 'yyyy-MM-dd';
+        let dateFormat = params[0] || 'yyyy-MM-dd';
+        // Convert our custom format strings to date-fns format
+        // Handle month names first to avoid conflicts
+        dateFormat = dateFormat
+          .replace(/MMMM/g, 'MMMM')  // Full month name (January)
+          .replace(/MMM/g, 'MMM')     // Short month name (Jan)
+          .replace(/MM/g, 'MM')       // Month number (01-12)
+          .replace(/DD/g, 'dd')       // Day with leading zero
+          .replace(/YYYY/g, 'yyyy');  // 4-digit year
         return this.formatDateValue(strValue, dateFormat);
       }
         
@@ -97,8 +105,11 @@ export class FileNamingService {
    */
   formatDateValue(dateStr, dateFormat) {
     try {
+      console.log(`[DATE FORMAT] Input: "${dateStr}", Format: "${dateFormat}"`);
+      
       // Try parsing as ISO date first
       let date = new Date(dateStr);
+      console.log(`[DATE FORMAT] Direct parse result: ${date}`);
       
       if (isNaN(date.getTime())) {
         // Try common date formats
@@ -113,7 +124,10 @@ export class FileNamingService {
         for (const fmt of formats) {
           try {
             date = parse(dateStr, fmt, new Date());
-            if (!isNaN(date.getTime())) break;
+            if (!isNaN(date.getTime())) {
+              console.log(`[DATE FORMAT] Parsed with format ${fmt}: ${date}`);
+              break;
+            }
           } catch (e) {
             // Continue to next format
           }
@@ -121,10 +135,13 @@ export class FileNamingService {
       }
       
       if (!isNaN(date.getTime())) {
-        return format(date, dateFormat);
+        const formatted = format(date, dateFormat);
+        console.log(`[DATE FORMAT] Final formatted date: ${formatted}`);
+        return formatted;
       }
       
       // If still invalid, return original
+      console.log(`[DATE FORMAT] Could not parse date, returning original: ${dateStr}`);
       return dateStr;
     } catch (error) {
       console.error('Error formatting date:', error);

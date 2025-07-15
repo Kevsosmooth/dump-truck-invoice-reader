@@ -212,9 +212,6 @@ export async function postProcessJob(jobId) {
     }
     console.log(`\n[RENAME] Processing job ${jobId}`);
     console.log(`[RENAME]   Original: ${job.fileName}`);
-    console.log(`[RENAME]   Company: ${companyName}`);
-    console.log(`[RENAME]   Ticket: ${ticketNumber}`);
-    console.log(`[RENAME]   Date: ${date}`);
     console.log(`[RENAME]   New name: ${newFileName}`);
 
     // Copy the original file to processed folder with new name

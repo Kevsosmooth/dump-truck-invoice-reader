@@ -3,36 +3,39 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  email               String               @unique
+  id                  Int                   @id @default(autoincrement())
+  email               String                @unique
   password            String?
-  googleId            String?              @unique
-  azureId             String?              @unique
+  googleId            String?               @unique
+  azureId             String?               @unique
   firstName           String?
   lastName            String?
   profilePicture      String?
-  role                UserRole             @default(USER)
-  isActive            Boolean              @default(true)
-  credits             Int                  @default(0)
+  role                UserRole              @default(USER)
+  isActive            Boolean               @default(true)
+  credits             Int                   @default(0)
   lastLoginAt         DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @default(now()) @updatedAt
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @default(now()) @updatedAt
   organizationId      Int?
   auditLogs           AuditLog[]
   jobs                Job[]
-  modelAccess         ModelAccess[]
+  modelAccessGranted  ModelAccess[]         @relation("ModelAccessGrantedBy")
+  modelAccess         ModelAccess[]         @relation("ModelAccessUser")
   modelConfigurations ModelConfiguration[]
   organization        Organization?
   PaymentMethod       PaymentMethod[]
   processingSessions  ProcessingSession[]
   sessions            Session[]
   transactions        Transaction[]
+  extractionAnalytics ExtractionAnalytics[]
 }
 
 model Session {
@@ -58,60 +61,74 @@ model Organization {
 }
 
 model CustomModel {
-  id             String       @id
-  organizationId Int
-  name           String
-  azureModelId   String
-  description    String?
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @default(now()) @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  id                  String                @id
+  organizationId      Int
+  name                String
+  azureModelId        String
+  description         String?
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @default(now()) @updatedAt
+  // Analytics fields
+  totalExtractions    Int                   @default(0)
+  avgConfidenceScore  Float                 @default(0)
+  lastUsedAt          DateTime?
+  organization        Organization          @relation(fields: [organizationId], references: [id])
+  extractionAnalytics ExtractionAnalytics[]
 }
 
 model Job {
-  id               String              @id @default(dbgenerated("(gen_random_uuid())::text"))
-  userId           Int
-  status           JobStatus           @default(QUEUED)
-  fileName         String
-  originalFileUrl  String?
-  processedFileUrl String?
-  resultFileUrl    String?
-  fileSize         Int
-  pageCount        Int                 @default(0)
-  pagesProcessed   Int                 @default(0)
-  creditsUsed      Int                 @default(0)
-  modelId          String?
-  error            String?
-  metadata         Json?
-  queueJobId       String?
-  createdAt        DateTime            @default(now())
-  completedAt      DateTime?
-  expiresAt        DateTime?
-  blobUrl          String?
-  extractedFields  Json?
-  lastPolledAt     DateTime?
-  newFileName      String?
-  operationId      String?
-  operationStatus  String?
-  parentJobId      String?
-  pollingStartedAt DateTime?
-  sasExpiresAt     DateTime?
-  sasUrl           String?
-  sessionId        String?
-  splitPageNumber  Int?
-  modelConfigId    String?
-  fileAccessLogs   FileAccessLog[]
-  modelConfig      ModelConfiguration? @relation(fields: [modelConfigId], references: [id])
-  parentJob        Job?                @relation("ParentChild", fields: [parentJobId], references: [id])
-  childJobs        Job[]               @relation("ParentChild")
-  session          ProcessingSession?  @relation(fields: [sessionId], references: [id])
-  user             User                @relation(fields: [userId], references: [id])
+  id                   String              @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId               Int
+  status               JobStatus           @default(QUEUED)
+  fileName             String
+  originalFileUrl      String?
+  processedFileUrl     String?
+  resultFileUrl        String?
+  fileSize             Int
+  pageCount            Int                 @default(0)
+  pagesProcessed       Int                 @default(0)
+  creditsUsed          Int                 @default(0)
+  modelId              String?
+  error                String?
+  metadata             Json?
+  queueJobId           String?
+  createdAt            DateTime            @default(now())
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  blobUrl              String?
+  extractedFields      Json?
+  lastPolledAt         DateTime?
+  newFileName          String?
+  operationId          String?
+  operationStatus      String?
+  parentJobId          String?
+  pollingStartedAt     DateTime?
+  sasExpiresAt         DateTime?
+  sasUrl               String?
+  sessionId            String?
+  splitPageNumber      Int?
+  modelConfigId        String?
+  // Analytics fields
+  processingStartTime  DateTime?
+  processingEndTime    DateTime?
+  confidenceScores     Json?               // { "fieldName": confidenceValue }
+  extractedFieldsCount Int                 @default(0)
+  avgConfidence        Float?              // Average confidence across all fields
+  fileAccessLogs       FileAccessLog[]
+  extractionAnalytics  ExtractionAnalytics[]
+  modelConfig          ModelConfiguration? @relation(fields: [modelConfigId], references: [id])
+  parentJob            Job?                @relation("ParentChild", fields: [parentJobId], references: [id])
+  childJobs            Job[]               @relation("ParentChild")
+  session              ProcessingSession?  @relation(fields: [sessionId], references: [id])
+  user                 User                @relation(fields: [userId], references: [id])
 
   @@index([sessionId])
   @@index([operationId])
   @@index([parentJobId])
   @@index([modelConfigId])
+  @@index([processingStartTime])
+  @@index([status, createdAt])
 }
 
 model ProcessingSession {
@@ -266,13 +283,15 @@ model ModelAccess {
   expiresAt     DateTime?
   isActive      Boolean            @default(true)
   customName    String?
+  grantedByUser User?              @relation("ModelAccessGrantedBy", fields: [grantedBy], references: [id], onUpdate: NoAction)
   modelConfig   ModelConfiguration @relation(fields: [modelConfigId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user          User               @relation("ModelAccessUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([modelConfigId, userId])
   @@index([modelConfigId])
   @@index([userId])
   @@index([expiresAt])
+  @@index([grantedBy])
 }
 
 model CreditPackage {
@@ -309,6 +328,26 @@ model PaymentMethod {
 
   @@index([isDefault])
   @@index([userId])
+}
+
+model ExtractionAnalytics {
+  id               String      @id @default(dbgenerated("(gen_random_uuid())::text"))
+  modelId          String
+  modelConfigId    String?
+  fieldName        String
+  confidenceScore  Float
+  extractionDate   DateTime    @default(now())
+  userId           Int
+  jobId            String
+  
+  model            CustomModel @relation(fields: [modelId], references: [id])
+  user             User        @relation(fields: [userId], references: [id])
+  job              Job         @relation(fields: [jobId], references: [id])
+  
+  @@index([modelId, extractionDate])
+  @@index([fieldName, extractionDate])
+  @@index([userId, extractionDate])
+  @@index([jobId])
 }
 
 enum FieldType {
